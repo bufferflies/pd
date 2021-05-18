@@ -64,8 +64,6 @@ func shouldBalance(cluster opt.Cluster, source, target *core.StoreInfo, region *
 	shouldBalance = sourceScore > targetScore
 
 	if !shouldBalance {
-		srcAvail := float64(float64(source.GetAvgAvailable())+float64(source.GetAvailableDeviation())) / (1 << 30)
-		destAvail := float64(float64(target.GetAvgAvailable())-float64(target.GetAvailableDeviation())) / (1 << 30)
 		log.Debug("skip balance "+kind.Resource.String(),
 			zap.String("scheduler", scheduleName), zap.Uint64("region-id", region.GetID()), zap.Uint64("source-store", sourceID), zap.Uint64("target-store", targetID),
 			zap.Int64("source-size", source.GetRegionSize()), zap.Float64("source-score", sourceScore),
@@ -73,9 +71,7 @@ func shouldBalance(cluster opt.Cluster, source, target *core.StoreInfo, region *
 			zap.Int64("target-size", target.GetRegionSize()), zap.Float64("target-score", targetScore),
 			zap.Int64("target-influence", targetInfluence),
 			zap.Int64("average-region-size", cluster.GetAverageRegionSize()),
-			zap.Int64("tolerant-resource", tolerantResource),
-			zap.Float64("src available(gb)", srcAvail),
-			zap.Float64("target available(gb)", destAvail))
+			zap.Int64("tolerant-resource", tolerantResource))
 	}
 	return shouldBalance, sourceScore, targetScore
 }
