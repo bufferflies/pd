@@ -143,8 +143,8 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) []*operator.Opera
 	sort.Slice(stores, func(i, j int) bool {
 		iOp := opInfluence.GetStoreInfluence(stores[i].GetID()).ResourceProperty(kind)
 		jOp := opInfluence.GetStoreInfluence(stores[j].GetID()).ResourceProperty(kind)
-		return stores[i].RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), iOp, -1) >
-			stores[j].RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), jOp, -1)
+		return stores[i].RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), iOp, 0) >
+			stores[j].RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), jOp, 0)
 	})
 	for _, source := range stores {
 		sourceID := source.GetID()

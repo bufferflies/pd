@@ -52,8 +52,8 @@ func shouldBalance(cluster opt.Cluster, source, target *core.StoreInfo, region *
 		sourceScore = source.LeaderScore(kind.Policy, sourceDelta)
 		targetScore = target.LeaderScore(kind.Policy, targetDelta)
 	case core.RegionKind:
-		sourceScore = source.RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), sourceDelta, -1)
-		targetScore = target.RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), targetDelta, 1)
+		sourceScore = source.RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), sourceDelta, 0)
+		targetScore = target.RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), targetDelta, 0)
 	}
 	if opts.IsDebugMetricsEnabled() {
 		opInfluenceStatus.WithLabelValues(scheduleName, strconv.FormatUint(sourceID, 10), "source").Set(float64(sourceInfluence))
