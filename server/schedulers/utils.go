@@ -72,7 +72,9 @@ func shouldBalance(cluster opt.Cluster, source, target *core.StoreInfo, region *
 			zap.Int64("target-size", target.GetRegionSize()), zap.Float64("target-score", targetScore),
 			zap.Int64("target-influence", targetInfluence),
 			zap.Int64("average-region-size", cluster.GetAverageRegionSize()),
-			zap.Int64("tolerant-resource", tolerantResource))
+			zap.Int64("tolerant-resource", tolerantResource),
+			zap.Uint64("source available size(gb)", source.GetAvgAvailable()/(1<<30)),
+			zap.Uint64("target available size(gb)", target.GetAvgAvailable()/(1<<30)))
 	}
 	return shouldBalance, sourceScore, targetScore
 }
