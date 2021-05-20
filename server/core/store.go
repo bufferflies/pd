@@ -310,7 +310,7 @@ func (s *StoreInfo) regionScoreV2(delta int64, deviation int, lowSpaceRatio floa
 		R = float64(s.GetRegionSize())
 	}
 	if s.GetRegionSize() != 0 && A+A*float64(delta)/float64(s.GetRegionSize()) > 0 {
-		A = A + A*float64(delta)/float64(s.GetRegionSize())
+		A = A - A*float64(delta)/float64(s.GetRegionSize())
 	}
 
 	var (
