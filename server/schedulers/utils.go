@@ -34,6 +34,7 @@ const (
 	adjustRatio             float64 = 0.005
 	leaderTolerantSizeRatio float64 = 5.0
 	minTolerantSizeRatio    float64 = 1.0
+	influenceAmp            int64   = 100
 )
 
 func shouldBalance(cluster opt.Cluster, source, target *core.StoreInfo, region *core.RegionInfo, kind core.ScheduleKind, opInfluence operator.OpInfluence, scheduleName string) (shouldBalance bool, sourceScore float64, targetScore float64) {
@@ -43,8 +44,8 @@ func shouldBalance(cluster opt.Cluster, source, target *core.StoreInfo, region *
 	sourceID := source.GetID()
 	targetID := target.GetID()
 	tolerantResource := getTolerantResource(cluster, region, kind)
-	sourceInfluence := opInfluence.GetStoreInfluence(sourceID).ResourceProperty(kind)
-	targetInfluence := opInfluence.GetStoreInfluence(targetID).ResourceProperty(kind)
+	sourceInfluence := opInfluence.GetStoreInfluence(sourceID).ResourceProperty(kind) * influenceAmp
+	targetInfluence := opInfluence.GetStoreInfluence(targetID).ResourceProperty(kind) * influenceAmp
 	sourceDelta, targetDelta := sourceInfluence-tolerantResource, targetInfluence+tolerantResource
 	opts := cluster.GetOpts()
 	switch kind.Resource {
