@@ -304,10 +304,15 @@ func (s *StoreInfo) regionScoreV1(highSpaceRatio, lowSpaceRatio float64, delta i
 func (s *StoreInfo) regionScoreV2(delta int64, deviation int, lowSpaceRatio float64) float64 {
 	A := float64(float64(s.GetAvgAvailable())-float64(deviation)*float64(s.GetAvailableDeviation())) / gb
 	C := float64(s.GetCapacity()) / gb
+	delta = delta * 100
 	R := float64(s.GetRegionSize() + delta)
-	if s.GetRegionSize() != 0 {
+	if R < 0 {
+		R = float64(s.GetRegionSize())
+	}
+	if s.GetRegionSize() != 0 && A+A*float64(delta)/float64(s.GetRegionSize()) > 0 {
 		A = A + A*float64(delta)/float64(s.GetRegionSize())
 	}
+
 	var (
 		K, M float64 = 1, 256 // Experience value to control the weight of the available influence on score
 		F    float64 = 50     // Experience value to prevent some nodes from running out of disk space prematurely.
