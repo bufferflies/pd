@@ -44,7 +44,7 @@ func shouldBalance(cluster opt.Cluster, source, target *core.StoreInfo, region *
 	sourceID := source.GetID()
 	targetID := target.GetID()
 	tolerantResource := getTolerantResource(cluster, region, kind)
-	sourceInfluence := opInfluence.GetStoreInfluence(sourceID).ResourceProperty(kind) * influenceAmp
+	sourceInfluence := opInfluence.GetStoreInfluence(sourceID).ResourceProperty(kind)
 	targetInfluence := opInfluence.GetStoreInfluence(targetID).ResourceProperty(kind) * influenceAmp
 	sourceDelta, targetDelta := sourceInfluence-tolerantResource, targetInfluence+tolerantResource
 	opts := cluster.GetOpts()
