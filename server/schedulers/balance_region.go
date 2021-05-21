@@ -139,6 +139,7 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) []*operator.Opera
 	opts := cluster.GetOpts()
 	stores = filter.SelectSourceStores(stores, s.filters, opts)
 	opInfluence := s.opController.GetOpInfluence(cluster)
+	s.OpController.GetFastOpInfluence(cluster, opInfluence)
 	kind := core.NewScheduleKind(core.RegionKind, core.BySize)
 	sort.Slice(stores, func(i, j int) bool {
 		iOp := opInfluence.GetStoreInfluence(stores[i].GetID()).ResourceProperty(kind)
@@ -227,6 +228,7 @@ func (s *balanceRegionScheduler) transferPeer(cluster opt.Cluster, region *core.
 		log.Debug("", zap.Uint64("region-id", regionID), zap.Uint64("source-store", sourceID), zap.Uint64("target-store", targetID))
 
 		opInfluence := s.opController.GetOpInfluence(cluster)
+		s.OpController.GetFastOpInfluence(cluster, opInfluence)
 		kind := core.NewScheduleKind(core.RegionKind, core.BySize)
 		shouldBalance, sourceScore, targetScore := shouldBalance(cluster, source, target, region, kind, opInfluence, s.GetName())
 		if !shouldBalance {

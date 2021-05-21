@@ -51,7 +51,8 @@ var (
 	// PushOperatorTickInterval is the interval try to push the operator.
 	PushOperatorTickInterval = 500 * time.Millisecond
 	// StoreBalanceBaseTime represents the base time of balance rate.
-	StoreBalanceBaseTime float64 = 60
+	StoreBalanceBaseTime   float64 = 60
+	FastOperatorFinishTime         = 10 * time.Second
 )
 
 // OperatorController is used to limit the speed of scheduling.
@@ -61,6 +62,7 @@ type OperatorController struct {
 	cluster         opt.Cluster
 	operators       map[uint64]*operator.Operator
 	hbStreams       *hbstream.HeartbeatStreams
+	fastOperators   map[uint64]*operator.Operator
 	histories       *list.List
 	counts          map[operator.OpKind]uint64
 	opRecords       *OperatorRecords
@@ -78,6 +80,7 @@ func NewOperatorController(ctx context.Context, cluster opt.Cluster, hbStreams *
 		operators:       make(map[uint64]*operator.Operator),
 		hbStreams:       hbStreams,
 		histories:       list.New(),
+		fastOperators:   make(map[uint64]*operator.Operator),
 		counts:          make(map[operator.OpKind]uint64),
 		opRecords:       NewOperatorRecords(ctx),
 		storesLimit:     make(map[uint64]map[storelimit.Type]*storelimit.StoreLimit),
@@ -125,6 +128,9 @@ func (oc *OperatorController) Dispatch(region *core.RegionInfo, source string) {
 			if oc.RemoveOperator(op) {
 				operatorWaitCounter.WithLabelValues(op.Desc(), "promote-success").Inc()
 				oc.PromoteWaitingOperator()
+			}
+			if time.Since(op.GetStartTime()) < FastOperatorFinishTime {
+				oc.fastOperators[region.GetID()] = op
 			}
 		case operator.TIMEOUT:
 			if oc.RemoveOperator(op) {
@@ -802,6 +808,32 @@ func (oc *OperatorController) GetOpInfluence(cluster opt.Cluster) operator.OpInf
 		}
 	}
 	return influence
+}
+
+// GetFastOpInfluence get fast finish influence and remove more than 10s operator
+func (oc *OperatorController) GetFastOpInfluence(cluster opt.Cluster, influence operator.OpInfluence) {
+	oc.RLock()
+	defer oc.RUnlock()
+	arr := make([]uint64, 0)
+	for _, op := range oc.fastOperators {
+		if op.CheckFastExpired() {
+			arr = append(arr, op.RegionID())
+		} else {
+			region := cluster.GetRegion(op.RegionID())
+			if region != nil {
+				op.TotalInfluence(influence, region)
+			}
+		}
+	}
+	log.Debug("remove op from fastOperators ", zap.Any("ids", arr))
+	if len(arr) >= 0 {
+		for _, v := range arr {
+			if _, ok := oc.fastOperators[v]; ok {
+				delete(oc.fastOperators, v)
+			}
+		}
+	}
+
 }
 
 // NewTotalOpInfluence creates a OpInfluence.
