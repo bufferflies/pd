@@ -130,8 +130,7 @@ func (oc *OperatorController) Dispatch(region *core.RegionInfo, source string) {
 				oc.PromoteWaitingOperator()
 			}
 			if time.Since(op.GetStartTime()) < FastOperatorFinishTime {
-				log.Debug("op finish too slow", zap.Uint64("region id", region.GetID()))
-				oc.fastOperators[region.GetID()] = op
+				oc.pushFastOperator(op)
 			}
 		case operator.TIMEOUT:
 			if oc.RemoveOperator(op) {
@@ -743,6 +742,12 @@ func (oc *OperatorController) pushHistory(op *operator.Operator) {
 	}
 }
 
+func (oc *OperatorController) pushFastOperator(op *operator.Operator) {
+	oc.Lock()
+	defer oc.Unlock()
+	oc.fastOperators[op.RegionID()] = op
+}
+
 // PruneHistory prunes a part of operators' history.
 func (oc *OperatorController) PruneHistory() {
 	oc.Lock()
@@ -813,12 +818,11 @@ func (oc *OperatorController) GetOpInfluence(cluster opt.Cluster) operator.OpInf
 
 // GetFastOpInfluence get fast finish influence and remove more than 10s operator
 func (oc *OperatorController) GetFastOpInfluence(cluster opt.Cluster, influence operator.OpInfluence) {
-	oc.RLock()
-	defer oc.RUnlock()
-	arr := make([]uint64, 0)
+	oc.Lock()
+	defer oc.Unlock()
 	for _, op := range oc.fastOperators {
 		if op.CheckFastExpired() {
-			arr = append(arr, op.RegionID())
+			delete(oc.fastOperators, op.RegionID())
 		} else {
 			region := cluster.GetRegion(op.RegionID())
 			if region != nil {
@@ -826,15 +830,6 @@ func (oc *OperatorController) GetFastOpInfluence(cluster opt.Cluster, influence 
 			}
 		}
 	}
-	if len(arr) >= 0 {
-		log.Debug("remove op from fastOperators ", zap.Any("ids", arr))
-		for _, v := range arr {
-			if _, ok := oc.fastOperators[v]; ok {
-				delete(oc.fastOperators, v)
-			}
-		}
-	}
-
 }
 
 // NewTotalOpInfluence creates a OpInfluence.
