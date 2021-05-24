@@ -130,6 +130,7 @@ func (oc *OperatorController) Dispatch(region *core.RegionInfo, source string) {
 				oc.PromoteWaitingOperator()
 			}
 			if time.Since(op.GetStartTime()) < FastOperatorFinishTime {
+				log.Debug("op finish too slow", zap.Uint64("region id", region.GetID()))
 				oc.fastOperators[region.GetID()] = op
 			}
 		case operator.TIMEOUT:
@@ -825,8 +826,8 @@ func (oc *OperatorController) GetFastOpInfluence(cluster opt.Cluster, influence 
 			}
 		}
 	}
-	log.Debug("remove op from fastOperators ", zap.Any("ids", arr))
 	if len(arr) >= 0 {
+		log.Debug("remove op from fastOperators ", zap.Any("ids", arr))
 		for _, v := range arr {
 			if _, ok := oc.fastOperators[v]; ok {
 				delete(oc.fastOperators, v)
