@@ -17,6 +17,7 @@ import (
 	"context"
 
 	"github.com/tikv/pd/pkg/cache"
+	"github.com/tikv/pd/pkg/queue"
 	"github.com/tikv/pd/server/config"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule/checker"
@@ -39,6 +40,7 @@ type CheckerController struct {
 	mergeChecker      *checker.MergeChecker
 	jointStateChecker *checker.JointStateChecker
 	regionWaitingList cache.Cache
+	missRegionQueue   *queue.PriorityQueue
 }
 
 // NewCheckerController create a new CheckerController.
@@ -55,6 +57,7 @@ func NewCheckerController(ctx context.Context, cluster opt.Cluster, ruleManager 
 		mergeChecker:      checker.NewMergeChecker(ctx, cluster),
 		jointStateChecker: checker.NewJointStateChecker(cluster),
 		regionWaitingList: regionWaitingList,
+		missRegionQueue:   queue.NewPriorityQueue(),
 	}
 }
 
@@ -63,18 +66,32 @@ func (c *CheckerController) CheckRegion(region *core.RegionInfo) []*operator.Ope
 	// If PD has restarted, it need to check learners added before and promote them.
 	// Don't check isRaftLearnerEnabled cause it maybe disable learner feature but there are still some learners to promote.
 	opController := c.opController
-
 	if op := c.jointStateChecker.Check(region); op != nil {
 		return []*operator.Operator{op}
 	}
 
 	if c.opts.IsPlacementRulesEnabled() {
 		if op := c.ruleChecker.Check(region); op != nil {
+			added := false
+			// ignore spilt or merge
+			if op.Kind()&operator.OpReplica != 0 {
+				missPeers, count := c.GetRuleChecker().GetMissPeer(region)
+				// miss replicate more than majority should has high priority.
+				// if less than majority, it will add waiting
+				if missPeers > count/2 {
+					c.missRegionQueue.Push(missPeers, region.GetID())
+					added = true
+				} else {
+					c.RemoveMissPeer([]uint64{region.GetID()})
+				}
+			}
 			if opController.OperatorCount(operator.OpReplica) < c.opts.GetReplicaScheduleLimit() {
 				return []*operator.Operator{op}
 			}
 			operator.OperatorLimitCounter.WithLabelValues(c.ruleChecker.GetType(), operator.OpReplica.String()).Inc()
-			c.regionWaitingList.Put(region.GetID(), nil)
+			if !added {
+				c.regionWaitingList.Put(region.GetID(), nil)
+			}
 		}
 	} else {
 		if op := c.learnerChecker.Check(region); op != nil {
@@ -113,44 +130,18 @@ func (c *CheckerController) GetRuleChecker() *checker.RuleChecker {
 	return c.ruleChecker
 }
 
-// SortRegionInfoByMissPeers regions should be sorted by miss peers
-func (c *CheckerController) SortRegionInfoByMissPeers(regionIds []*core.RegionInfo) []uint64 {
-	ids := make([]uint64, len(regionIds))
-	for i, v := range regionIds {
-		ids[i] = v.GetID()
-	}
-	return c.SortRegionIdByMissPeers(ids)
+func (c *CheckerController) GetMissPeers() []*queue.Entry {
+	return c.missRegionQueue.GetAll(-1)
 }
-
-// SortMissRegion return regions order by miss count,it will only scan
-func (c *CheckerController) SortRegionIdByMissPeers(regionIds []uint64) []uint64 {
-	levels := c.ruleChecker.GetMaxMissPeer() + 1
-	buckets := make([][]uint64, levels)
-	for i := range buckets {
-		buckets[i] = make([]uint64, 0)
+func (c *CheckerController) RemoveMissPeer(ids []uint64) {
+	s := make([]interface{}, len(ids))
+	for i, v := range ids {
+		s[i] = v
 	}
-	result := make([]uint64, len(regionIds))
-	for _, id := range regionIds {
-		region := c.cluster.GetRegion(id)
-		if region == nil {
-			buckets[0] = append(buckets[0], id)
-			continue
-		}
-		missPeer := c.ruleChecker.GetMissPeer(region)
-		buckets[missPeer] = append(buckets[missPeer], id)
-	}
-	idx := 0
-	for i := range buckets {
-		index := levels - i - 1
-		if len(buckets[index]) == 0 {
-			continue
-		}
-		for j := range buckets[index] {
-			result[idx] = buckets[index][j]
-			idx = idx + 1
-		}
-	}
-	return result
+	c.missRegionQueue.RemoveValues(s)
+}
+func (c *CheckerController) UpdateMissPeer(entry *queue.Entry) {
+	c.missRegionQueue.Update(entry, entry.Priority)
 }
 
 // GetWaitingRegions returns the regions in the waiting list.

@@ -451,7 +451,7 @@ func (s *testCoordinatorSuite) TestReplica(c *C) {
 func (s *testCoordinatorSuite) TestFixLessPeer(c *C) {
 	tc, co, cleanup := prepare(func(cfg *config.ScheduleConfig) {
 		// Turn off replica scheduling.
-		cfg.ReplicaScheduleLimit = 1
+		cfg.ReplicaScheduleLimit = 0
 	}, nil, nil, c)
 	defer cleanup()
 
@@ -462,30 +462,25 @@ func (s *testCoordinatorSuite) TestFixLessPeer(c *C) {
 	// Add a peer with three replicas.
 	c.Assert(tc.addLeaderRegion(1, 2), IsNil)
 	c.Assert(tc.addLeaderRegion(2, 2, 3), IsNil)
+	c.Assert(tc.addLeaderRegion(3, 2, 1), IsNil)
 	c.Assert(failpoint.Enable("github.com/tikv/pd/server/cluster/break-patrol", `return`), IsNil)
 
-	// case 1: region-1 has high priority than region-2
+	// case 1: region-1 and region-3 will entry miss peer queue
 	co.wg.Add(1)
-	tc.AddSuspectRegions(1, 2)
-
-	co.patrolRegions()
 	oc := co.opController
-	c.Assert(len(oc.GetOperators()), Equals, 1)
-	c.Assert(oc.GetOperator(uint64(1)), NotNil)
-	c.Assert(len(co.checkers.GetWaitingRegions()), Equals, 1)
+	co.patrolRegions()
+	c.Assert(len(oc.GetOperators()), Equals, 0)
+	c.Assert(len(co.checkers.GetMissPeers()), Equals, 1)
 
-	// case 2: region-3 enter into cluster,region-2 is deleted by suspect regions and waiting regions
-	c.Assert(tc.addLeaderRegion(3, 2), IsNil)
-	tc.RemoveSuspectRegion(uint64(2))
-	co.checkers.RemoveWaitingRegion(uint64(2))
+	// case 2: region-1 will has high priority,so it will be scheduled first
 	opt := tc.GetOpts()
 	cfg := opt.GetScheduleConfig()
-	cfg.ReplicaScheduleLimit = 2
+	cfg.ReplicaScheduleLimit = 1
 	co.wg.Add(1)
 	co.patrolRegions()
-	c.Assert(len(oc.GetOperators()), Equals, 2)
-	c.Assert(oc.GetOperator(uint64(3)), NotNil)
-	c.Assert(len(co.checkers.GetWaitingRegions()), Equals, 1)
+	c.Assert(len(oc.GetOperators()), Equals, 1)
+	c.Assert(oc.GetOperator(1), NotNil)
+	c.Assert(len(co.checkers.GetMissPeers()), Equals, 1)
 
 	co.wg.Wait()
 	c.Assert(failpoint.Disable("github.com/tikv/pd/server/cluster/break-patrol"), IsNil)

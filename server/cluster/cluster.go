@@ -457,7 +457,7 @@ func (c *RaftCluster) GetSuspectRegions() []uint64 {
 	c.RLock()
 	regions := c.suspectRegions.GetAllID()
 	c.RUnlock()
-	return c.coordinator.checkers.SortRegionIdByMissPeers(regions)
+	return regions
 }
 
 // RemoveSuspectRegion removes region from suspect list.
