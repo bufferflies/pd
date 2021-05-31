@@ -779,3 +779,38 @@ func createRegionForRuleFit(startKey, endKey []byte,
 	}, copyLeader, opts...)
 	return cloneRegion
 }
+
+type ScoreFilter struct {
+	scope   string
+	score   float64
+	targets map[uint64]struct{}
+}
+
+// NewScoreFilter creates a Filter that filters all high score stores.
+func NewScoreFilter(scope string, sources *core.StoreInfo, opt *config.PersistOptions) Filter {
+	return &ScoreFilter{
+		scope: scope,
+		score: sources.RegionScore(opt.GetRegionScoreFormulaVersion(), opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0, 0),
+	}
+}
+
+// Scope
+func (f *ScoreFilter) Scope() string {
+	return f.scope
+}
+
+// Type
+func (f *ScoreFilter) Type() string {
+	return "score-filter"
+}
+
+// Source return true
+func (f *ScoreFilter) Source(opt *config.PersistOptions, store *core.StoreInfo) bool {
+	return true
+}
+
+// Target return true if target score greater than src
+func (f *ScoreFilter) Target(opt *config.PersistOptions, store *core.StoreInfo) bool {
+	score := store.RegionScore(opt.GetRegionScoreFormulaVersion(), opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0, 0)
+	return score < f.score
+}

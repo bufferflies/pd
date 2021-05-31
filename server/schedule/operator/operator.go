@@ -207,12 +207,6 @@ func (o *Operator) CheckTimeout() bool {
 	return o.status.CheckTimeout(FastOperatorWaitTime)
 }
 
-// CheckExpired checks true  if the operator cost more than fast wait time
-func (o *Operator) CheckFastExpired() bool {
-	t := o.GetStartTime()
-	return time.Since(t) > FastOperatorWaitTime
-}
-
 // Len returns the operator's steps count.
 func (o *Operator) Len() int {
 	return len(o.steps)

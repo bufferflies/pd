@@ -58,11 +58,12 @@ var (
 // OperatorController is used to limit the speed of scheduling.
 type OperatorController struct {
 	sync.RWMutex
-	ctx             context.Context
-	cluster         opt.Cluster
-	operators       map[uint64]*operator.Operator
-	hbStreams       *hbstream.HeartbeatStreams
-	fastOperators   map[uint64]*operator.Operator
+	ctx       context.Context
+	cluster   opt.Cluster
+	operators map[uint64]*operator.Operator
+	hbStreams *hbstream.HeartbeatStreams
+	//fastOperators map[uint64]*operator.Operator
+	fastOperators   *cache.TTLUint64
 	histories       *list.List
 	counts          map[operator.OpKind]uint64
 	opRecords       *OperatorRecords
@@ -80,7 +81,7 @@ func NewOperatorController(ctx context.Context, cluster opt.Cluster, hbStreams *
 		operators:       make(map[uint64]*operator.Operator),
 		hbStreams:       hbStreams,
 		histories:       list.New(),
-		fastOperators:   make(map[uint64]*operator.Operator),
+		fastOperators:   cache.NewIDTTL(ctx, time.Minute, FastOperatorFinishTime),
 		counts:          make(map[operator.OpKind]uint64),
 		opRecords:       NewOperatorRecords(ctx),
 		storesLimit:     make(map[uint64]map[storelimit.Type]*storelimit.StoreLimit),
@@ -744,9 +745,7 @@ func (oc *OperatorController) pushHistory(op *operator.Operator) {
 }
 
 func (oc *OperatorController) pushFastOperator(op *operator.Operator) {
-	oc.Lock()
-	defer oc.Unlock()
-	oc.fastOperators[op.RegionID()] = op
+	oc.fastOperators.Put(op.RegionID(), op)
 }
 
 // PruneHistory prunes a part of operators' history.
@@ -819,19 +818,21 @@ func (oc *OperatorController) GetOpInfluence(cluster opt.Cluster) operator.OpInf
 
 // GetFastOpInfluence get fast finish influence and remove more than 10s operator
 func (oc *OperatorController) GetFastOpInfluence(cluster opt.Cluster, influence operator.OpInfluence) {
-	oc.Lock()
-	defer oc.Unlock()
-	for _, op := range oc.fastOperators {
-		if op.CheckFastExpired() {
-			log.Debug("op duration 10s", zap.Uint64("region-id", op.RegionID()))
-			delete(oc.fastOperators, op.RegionID())
-		} else {
-			region := cluster.GetRegion(op.RegionID())
-			if region != nil {
-				log.Debug("op influence less than 10s", zap.Uint64("region-id", op.RegionID()))
-				op.TotalInfluence(influence, region)
-			}
+	for _, id := range oc.fastOperators.GetAllID() {
+		value, ok := oc.fastOperators.Get(id)
+		if !ok {
+			continue
 		}
+		op, ok := value.(*operator.Operator)
+		if !ok {
+			continue
+		}
+		region := cluster.GetRegion(op.RegionID())
+		if region != nil {
+			log.Debug("op influence less than 10s", zap.Uint64("region-id", op.RegionID()))
+			op.TotalInfluence(influence, region)
+		}
+
 	}
 }
 

@@ -201,7 +201,6 @@ func (s *balanceRegionScheduler) transferPeer(cluster opt.Cluster, region *core.
 	sourceStoreID := oldPeer.GetStoreId()
 	source := cluster.GetStore(sourceStoreID)
 	opt := cluster.GetOpts()
-	score := source.RegionScore(opt.GetRegionScoreFormulaVersion(), opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0, 0)
 	if source == nil {
 		log.Error("failed to get the source store", zap.Uint64("store-id", sourceStoreID), errs.ZapError(errs.ErrGetSourceStore))
 		return nil
@@ -210,6 +209,7 @@ func (s *balanceRegionScheduler) transferPeer(cluster opt.Cluster, region *core.
 	filters := []filter.Filter{
 		filter.NewExcludedFilter(s.GetName(), nil, region.GetStoreIds()),
 		filter.NewPlacementSafeguard(s.GetName(), cluster, region, source),
+		filter.NewScoreFilter(s.GetName(), source, opt),
 		filter.NewSpecialUseFilter(s.GetName()),
 		&filter.StoreStateFilter{ActionScope: s.GetName(), MoveRegion: true},
 	}
@@ -219,9 +219,6 @@ func (s *balanceRegionScheduler) transferPeer(cluster opt.Cluster, region *core.
 		Sort(filter.RegionScoreComparer(opt))
 
 	for _, target := range candidates.Stores {
-		if target.RegionScore(opt.GetRegionScoreFormulaVersion(), opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0, 0) > score {
-			continue
-		}
 		regionID := region.GetID()
 		sourceID := source.GetID()
 		targetID := target.GetID()
