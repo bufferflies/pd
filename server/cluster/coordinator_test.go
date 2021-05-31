@@ -292,7 +292,6 @@ func prepare(setCfg func(*config.ScheduleConfig), setTc func(*testCluster), run 
 	if run != nil {
 		run(co)
 	}
-	tc.coordinator = co
 	return tc, co, func() {
 		co.stop()
 		co.wg.Wait()

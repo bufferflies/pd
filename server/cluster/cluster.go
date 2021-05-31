@@ -455,9 +455,8 @@ func (c *RaftCluster) AddSuspectRegions(regionIDs ...uint64) {
 // GetSuspectRegions gets all suspect regions.
 func (c *RaftCluster) GetSuspectRegions() []uint64 {
 	c.RLock()
-	regions := c.suspectRegions.GetAllID()
-	c.RUnlock()
-	return regions
+	defer c.RUnlock()
+	return c.suspectRegions.GetAllID()
 }
 
 // RemoveSuspectRegion removes region from suspect list.

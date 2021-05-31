@@ -66,6 +66,7 @@ func (c *CheckerController) CheckRegion(region *core.RegionInfo) []*operator.Ope
 	// If PD has restarted, it need to check learners added before and promote them.
 	// Don't check isRaftLearnerEnabled cause it maybe disable learner feature but there are still some learners to promote.
 	opController := c.opController
+
 	if op := c.jointStateChecker.Check(region); op != nil {
 		return []*operator.Operator{op}
 	}
