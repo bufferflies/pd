@@ -80,10 +80,10 @@ func (c *CheckerController) CheckRegion(region *core.RegionInfo) []*operator.Ope
 				// miss replicate more than majority should has high priority.
 				// if less than majority, it will add waiting
 				if missPeers > count/2 {
-					c.missRegionQueue.Push(missPeers, region.GetID())
+					c.AddMissRegions(missPeers, region)
 					added = true
 				} else {
-					c.RemoveMissPeer([]uint64{region.GetID()})
+					c.RemoveMissRegions([]uint64{region.GetID()})
 				}
 			}
 			if opController.OperatorCount(operator.OpReplica) < c.opts.GetReplicaScheduleLimit() {
@@ -131,18 +131,28 @@ func (c *CheckerController) GetRuleChecker() *checker.RuleChecker {
 	return c.ruleChecker
 }
 
-func (c *CheckerController) GetMissPeers() []*queue.Entry {
+// GetMissRegions return miss regions that it's peers less than majority
+func (c *CheckerController) GetMissRegions() []*queue.Entry {
 	return c.missRegionQueue.GetAll(-1)
 }
-func (c *CheckerController) RemoveMissPeer(ids []uint64) {
+
+// RemoveMissRegions remove the regions from priority queue
+func (c *CheckerController) RemoveMissRegions(ids []uint64) {
 	s := make([]interface{}, len(ids))
 	for i, v := range ids {
 		s[i] = v
 	}
 	c.missRegionQueue.RemoveValues(s)
 }
+
+// UpdateMissPeer update region priority
 func (c *CheckerController) UpdateMissPeer(entry *queue.Entry) {
 	c.missRegionQueue.Update(entry, entry.Priority)
+}
+
+// AddMissRegions add miss region into priority queue
+func (c *CheckerController) AddMissRegions(missPeers int, region *core.RegionInfo) {
+	c.missRegionQueue.Push(missPeers, region.GetID())
 }
 
 // GetWaitingRegions returns the regions in the waiting list.

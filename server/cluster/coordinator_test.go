@@ -469,7 +469,7 @@ func (s *testCoordinatorSuite) TestFixLessPeer(c *C) {
 	oc := co.opController
 	co.patrolRegions()
 	c.Assert(len(oc.GetOperators()), Equals, 0)
-	c.Assert(len(co.checkers.GetMissPeers()), Equals, 1)
+	c.Assert(len(co.checkers.GetMissRegions()), Equals, 1)
 
 	// case 2: region-1 will has high priority,so it will be scheduled first
 	opt := tc.GetOpts()
@@ -479,7 +479,7 @@ func (s *testCoordinatorSuite) TestFixLessPeer(c *C) {
 	co.patrolRegions()
 	c.Assert(len(oc.GetOperators()), Equals, 1)
 	c.Assert(oc.GetOperator(1), NotNil)
-	c.Assert(len(co.checkers.GetMissPeers()), Equals, 1)
+	c.Assert(len(co.checkers.GetMissRegions()), Equals, 1)
 
 	co.wg.Wait()
 	c.Assert(failpoint.Disable("github.com/tikv/pd/server/cluster/break-patrol"), IsNil)

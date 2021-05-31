@@ -163,7 +163,7 @@ func (c *coordinator) patrolRegions() {
 func (c *coordinator) checkMissRegions() bool {
 	add := make([]*queue.Entry, 0)
 	remove := make([]uint64, 0)
-	missPeers := c.checkers.GetMissPeers()
+	missPeers := c.checkers.GetMissRegions()
 	for _, entry := range missPeers {
 		id, ok := entry.Value.(uint64)
 		if !ok {
@@ -191,7 +191,7 @@ func (c *coordinator) checkMissRegions() bool {
 			}
 		}
 	}
-	c.checkers.RemoveMissPeer(remove)
+	c.checkers.RemoveMissRegions(remove)
 	for _, v := range add {
 		c.checkers.UpdateMissPeer(v)
 	}
