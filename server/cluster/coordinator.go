@@ -128,7 +128,7 @@ func (c *coordinator) patrolRegions() {
 
 		for _, region := range regions {
 			// Skips the region if there is already a pending operator.
-			if c.cluster.GetRegion(region.GetID()) == nil {
+			if c.cluster.GetRegion(region.GetID()) != nil {
 				continue
 			}
 			ops := c.checkers.CheckRegion(region)
