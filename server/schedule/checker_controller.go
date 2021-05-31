@@ -73,7 +73,7 @@ func (c *CheckerController) CheckRegion(region *core.RegionInfo) []*operator.Ope
 	if c.opts.IsPlacementRulesEnabled() {
 		if op := c.ruleChecker.Check(region); op != nil {
 			added := false
-			// ignore spilt or merge
+			// ignore spilt
 			if op.Kind()&operator.OpReplica != 0 {
 				missPeers, count := c.GetRuleChecker().GetMissPeer(region)
 				// miss replicate more than majority should has high priority.
