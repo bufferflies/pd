@@ -297,8 +297,7 @@ func (s *testRegionCacheSuite) TestTwoQueueCache(c *C) {
 	c.Assert(ok, IsFalse)
 	c.Assert(val, IsNil)
 }
-
-func (t *testRegionCacheSuite) TestPriorityQueue(c *C) {
+func (s *testRegionCacheSuite) TestPriorityQueue(c *C) {
 	pq := NewPriorityQueue()
 	pq.Push(1, 1)
 	pq.Push(3, 3)
