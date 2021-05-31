@@ -1,31 +1,31 @@
-package queue
+package cache
 
 import "container/heap"
 
 // PriorityQueue queue has priority, the first element has the highest priority
 type PriorityQueue struct {
 	queue *priorityHeap
-	dict  map[interface{}]*Entry
+	items map[interface{}]*Entry
 }
 
 // NewPriorityQueue construct of priority queue
 func NewPriorityQueue() *PriorityQueue {
 	return &PriorityQueue{
 		queue: &priorityHeap{},
-		dict:  make(map[interface{}]*Entry),
+		items: make(map[interface{}]*Entry),
 	}
 }
 
 // Push push element into pq with priority
 func (pq *PriorityQueue) Push(priority int, x interface{}) {
-	v, ok := pq.dict[x]
+	v, ok := pq.items[x]
 	if !ok {
 		v = &Entry{Value: x, Priority: priority}
 		pq.queue.Push(v)
 	} else {
 		pq.Update(v, priority)
 	}
-	pq.dict[x] = v
+	pq.items[x] = v
 }
 
 // Pop pop the high Priority element from queue
@@ -34,7 +34,7 @@ func (pq *PriorityQueue) Pop() *Entry {
 	if !ok || entry == nil {
 		return nil
 	}
-	delete(pq.dict, entry.Value)
+	delete(pq.items, entry.Value)
 	return entry
 }
 
@@ -57,9 +57,9 @@ func (pq *PriorityQueue) GetAll(limit int) []*Entry {
 // RemoveValues remove elements
 func (pq *PriorityQueue) RemoveValues(values []interface{}) {
 	for _, v := range values {
-		if entry, ok := pq.dict[v]; ok {
+		if entry, ok := pq.items[v]; ok {
 			pq.queue.remove(entry.Index)
-			delete(pq.dict, v)
+			delete(pq.items, v)
 		}
 	}
 
@@ -67,7 +67,7 @@ func (pq *PriorityQueue) RemoveValues(values []interface{}) {
 
 // Has it will return true if queue has the value
 func (pq *PriorityQueue) Has(v interface{}) bool {
-	if value, ok := pq.dict[v]; ok && value.Index != -1 {
+	if value, ok := pq.items[v]; ok && value.Index != -1 {
 		return true
 	}
 	return false

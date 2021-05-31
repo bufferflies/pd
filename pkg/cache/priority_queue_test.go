@@ -1,4 +1,4 @@
-package queue
+package cache
 
 import (
 	"testing"
@@ -46,6 +46,6 @@ func (t *testQueueSuite) TestPriorityQueue(c *C) {
 	// case4 remove all element
 	pq.RemoveValues([]interface{}{1})
 	c.Assert(pq.Size(), Equals, 0)
-	c.Assert(len(pq.dict), Equals, 0)
+	c.Assert(len(pq.items), Equals, 0)
 	c.Assert(pq.queue.Len(), Equals, 0)
 }

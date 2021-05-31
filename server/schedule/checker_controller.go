@@ -17,7 +17,6 @@ import (
 	"context"
 
 	"github.com/tikv/pd/pkg/cache"
-	"github.com/tikv/pd/pkg/queue"
 	"github.com/tikv/pd/server/config"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule/checker"
@@ -40,7 +39,7 @@ type CheckerController struct {
 	mergeChecker      *checker.MergeChecker
 	jointStateChecker *checker.JointStateChecker
 	regionWaitingList cache.Cache
-	missRegionQueue   *queue.PriorityQueue
+	missRegionQueue   *cache.PriorityQueue
 }
 
 // NewCheckerController create a new CheckerController.
@@ -57,7 +56,7 @@ func NewCheckerController(ctx context.Context, cluster opt.Cluster, ruleManager 
 		mergeChecker:      checker.NewMergeChecker(ctx, cluster),
 		jointStateChecker: checker.NewJointStateChecker(cluster),
 		regionWaitingList: regionWaitingList,
-		missRegionQueue:   queue.NewPriorityQueue(),
+		missRegionQueue:   cache.NewPriorityQueue(),
 	}
 }
 
@@ -132,7 +131,7 @@ func (c *CheckerController) GetRuleChecker() *checker.RuleChecker {
 }
 
 // GetMissRegions return miss regions that it's peers less than majority
-func (c *CheckerController) GetMissRegions() []*queue.Entry {
+func (c *CheckerController) GetMissRegions() []*cache.Entry {
 	return c.missRegionQueue.GetAll(-1)
 }
 
@@ -146,7 +145,7 @@ func (c *CheckerController) RemoveMissRegions(ids []uint64) {
 }
 
 // UpdateMissPeer update region priority
-func (c *CheckerController) UpdateMissPeer(entry *queue.Entry) {
+func (c *CheckerController) UpdateMissPeer(entry *cache.Entry) {
 	c.missRegionQueue.Update(entry, entry.Priority)
 }
 

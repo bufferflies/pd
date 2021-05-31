@@ -25,9 +25,9 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/log"
+	"github.com/tikv/pd/pkg/cache"
 	"github.com/tikv/pd/pkg/errs"
 	"github.com/tikv/pd/pkg/logutil"
-	"github.com/tikv/pd/pkg/queue"
 	"github.com/tikv/pd/server/config"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/kv"
@@ -161,7 +161,7 @@ func (c *coordinator) patrolRegions() {
 // checkMissRegions check miss peer ,if miss region is more than maxMissPeerQueueSize,
 // it will return ture to avoid run other replica check
 func (c *coordinator) checkMissRegions() bool {
-	add := make([]*queue.Entry, 0)
+	add := make([]*cache.Entry, 0)
 	remove := make([]uint64, 0)
 	missPeers := c.checkers.GetMissRegions()
 	for _, entry := range missPeers {
