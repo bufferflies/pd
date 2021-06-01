@@ -780,6 +780,7 @@ func createRegionForRuleFit(startKey, endKey []byte,
 	return cloneRegion
 }
 
+// ScoreFilter filter store that score higher than src
 type ScoreFilter struct {
 	scope string
 	score float64
@@ -793,12 +794,12 @@ func NewScoreFilter(scope string, sources *core.StoreInfo, opt *config.PersistOp
 	}
 }
 
-// Scope
+// Scope scope
 func (f *ScoreFilter) Scope() string {
 	return f.scope
 }
 
-// Type
+// Type type
 func (f *ScoreFilter) Type() string {
 	return "score-filter"
 }
