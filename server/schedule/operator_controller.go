@@ -58,11 +58,10 @@ var (
 // OperatorController is used to limit the speed of scheduling.
 type OperatorController struct {
 	sync.RWMutex
-	ctx       context.Context
-	cluster   opt.Cluster
-	operators map[uint64]*operator.Operator
-	hbStreams *hbstream.HeartbeatStreams
-	//fastOperators map[uint64]*operator.Operator
+	ctx             context.Context
+	cluster         opt.Cluster
+	operators       map[uint64]*operator.Operator
+	hbStreams       *hbstream.HeartbeatStreams
 	fastOperators   *cache.TTLUint64
 	histories       *list.List
 	counts          map[operator.OpKind]uint64

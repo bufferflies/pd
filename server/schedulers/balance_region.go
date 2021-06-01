@@ -213,6 +213,7 @@ func (s *balanceRegionScheduler) transferPeer(plan *balancePlan) *operator.Opera
 		sourceID := plan.source.GetID()
 		targetID := plan.target.GetID()
 		log.Debug("", zap.Uint64("region-id", regionID), zap.Uint64("source-store", sourceID), zap.Uint64("target-store", targetID))
+
 		if !plan.shouldBalance(s.GetName()) {
 			schedulerCounter.WithLabelValues(s.GetName(), "skip").Inc()
 			continue
