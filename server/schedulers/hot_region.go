@@ -215,6 +215,11 @@ func (h *hotScheduler) prepareForBalance(cluster opt.Cluster) {
 			h.pendingSums,
 			regionRead,
 			read, core.LeaderKind)
+		h.stLoadInfos[readPeer] = summaryStoresLoad(
+			storesLoads,
+			h.pendingSums,
+			regionRead,
+			read, core.RegionKind)
 	}
 
 	{ // update write statistics
@@ -458,6 +463,8 @@ func (bs *balanceSolver) init() {
 		bs.stLoadDetail = bs.sche.stLoadInfos[writeLeader]
 	case readLeader:
 		bs.stLoadDetail = bs.sche.stLoadInfos[readLeader]
+	case readPeer:
+		bs.stLoadDetail = bs.sche.stLoadInfos[readPeer]
 	}
 	// And it will be unnecessary to filter unhealthy store, because it has been solved in process heartbeat
 
@@ -810,7 +817,7 @@ func (bs *balanceSolver) calcProgressiveRank() {
 			dstRate := dstLd.Loads[dim]
 			peerRate := peer.GetLoad(getRegionStatKind(bs.rwTy, dim))
 			decRatio := (dstRate + peerRate) / getSrcDecRate(srcRate, peerRate)
-			isHot := peerRate >= bs.sche.conf.GetMinHotKeyRate()
+			isHot := peerRate >= bs.getMinRate(dim)
 			return isHot, decRatio
 		}
 		keyHot, keyDecRatio := checkHot(statistics.KeyDim)
@@ -829,7 +836,22 @@ func (bs *balanceSolver) calcProgressiveRank() {
 			rank = -1
 		}
 	}
+	log.Debug("calcProgressiveRank",
+		zap.Uint64("region-id", bs.cur.region.GetID()),
+		zap.Uint64("from-store-id", bs.cur.srcStoreID),
+		zap.Uint64("to-store-id", bs.cur.dstStoreID),
+		zap.Int64("rank", rank))
 	bs.cur.progressiveRank = rank
+}
+
+func (bs *balanceSolver) getMinRate(dim int) float64 {
+	switch dim {
+	case statistics.KeyDim:
+		return bs.sche.conf.GetMinHotKeyRate()
+	case statistics.ByteDim:
+		return bs.sche.conf.GetMinHotByteRate()
+	}
+	return -1
 }
 
 // betterThan checks if `bs.cur` is a better solution than `old`.
@@ -1065,11 +1087,16 @@ func (h *hotScheduler) GetHotReadStatus() *statistics.StoreHotPeersInfos {
 	h.RLock()
 	defer h.RUnlock()
 	asLeader := make(statistics.StoreHotPeersStat, len(h.stLoadInfos[readLeader]))
+	asPeer := make(statistics.StoreHotPeersStat, len(h.stLoadInfos[readPeer]))
 	for id, detail := range h.stLoadInfos[readLeader] {
 		asLeader[id] = detail.toHotPeersStat()
 	}
+	for id, detail := range h.stLoadInfos[readPeer] {
+		asPeer[id] = detail.toHotPeersStat()
+	}
 	return &statistics.StoreHotPeersInfos{
 		AsLeader: asLeader,
+		AsPeer:   asPeer,
 	}
 }
 
@@ -1171,6 +1198,7 @@ type resourceType int
 const (
 	writePeer resourceType = iota
 	writeLeader
+	readPeer
 	readLeader
 	resourceTypeLen
 )
@@ -1185,7 +1213,12 @@ func toResourceType(rwTy rwType, opTy opType) resourceType {
 			return writeLeader
 		}
 	case read:
-		return readLeader
+		switch opTy {
+		case movePeer:
+			return readPeer
+		case transferLeader:
+			return readLeader
+		}
 	}
 	panic(fmt.Sprintf("invalid arguments for toResourceType: rwTy = %v, opTy = %v", rwTy, opTy))
 }

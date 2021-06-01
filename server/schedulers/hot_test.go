@@ -410,6 +410,39 @@ func (s *testHotWriteRegionSchedulerSuite) TestUnhealthyStore(c *C) {
 	}
 }
 
+func (s *testHotWriteRegionSchedulerSuite) TestCheckHot(c *C) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	statistics.Denoising = false
+	opt := config.NewTestOptions()
+	hb, err := schedule.CreateScheduler(HotWriteRegionType, schedule.NewOperatorController(ctx, nil, nil), core.NewStorage(kv.NewMemoryKV()), nil)
+	c.Assert(err, IsNil)
+	hb.(*hotScheduler).conf.SetDstToleranceRatio(1)
+	hb.(*hotScheduler).conf.SetSrcToleranceRatio(1)
+
+	tc := mockcluster.NewCluster(ctx, opt)
+	tc.SetHotRegionCacheHitsThreshold(0)
+	tc.DisableFeature(versioninfo.JointConsensus)
+	tc.AddRegionStore(1, 20)
+	tc.AddRegionStore(2, 20)
+	tc.AddRegionStore(3, 20)
+	tc.AddRegionStore(4, 20)
+	tc.AddRegionStore(5, 20)
+
+	tc.UpdateStorageWrittenStats(1, 10.5*MB*statistics.StoreHeartBeatReportInterval, 10.5*MB*statistics.StoreHeartBeatReportInterval)
+	tc.UpdateStorageWrittenStats(2, 10.5*MB*statistics.StoreHeartBeatReportInterval, 10.5*MB*statistics.StoreHeartBeatReportInterval)
+	tc.UpdateStorageWrittenStats(3, 10.5*MB*statistics.StoreHeartBeatReportInterval, 10.5*MB*statistics.StoreHeartBeatReportInterval)
+	tc.UpdateStorageWrittenStats(4, 9.5*MB*statistics.StoreHeartBeatReportInterval, 10*MB*statistics.StoreHeartBeatReportInterval)
+
+	addRegionInfo(tc, write, []testRegionInfo{
+		{1, []uint64{1, 2, 3}, 90, 0.5 * MB},       // no hot
+		{1, []uint64{2, 1, 3}, 90, 0.5 * MB},       // no hot
+		{2, []uint64{3, 2, 1}, 0.5 * MB, 0.5 * MB}, // byteDecRatio is greater than greatDecRatio
+	})
+
+	c.Check(hb.Schedule(tc), HasLen, 0)
+}
+
 func (s *testHotWriteRegionSchedulerSuite) TestLeader(c *C) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -845,7 +878,7 @@ func (s *testHotReadRegionSchedulerSuite) TestWithPendingInfluence(c *C) {
 			// store byte/key rate (min, max): (6.6, 7.1) | 6.1 | (6, 6.5) | 5
 
 			op2 := hb.Schedule(tc)[0]
-			testutil.CheckTransferPeerWithLeaderTransfer(c, op2, operator.OpHotRegion, 1, 4)
+			testutil.CheckTransferPeer(c, op2, operator.OpHotRegion, 1, 4)
 			// store byte/key rate (min, max): (6.1, 7.1) | 6.1 | (6, 6.5) | (5, 5.5)
 
 			ops := hb.Schedule(tc)
@@ -860,20 +893,20 @@ func (s *testHotReadRegionSchedulerSuite) TestWithPendingInfluence(c *C) {
 			// store byte/key rate (min, max): (6.6, 7.1) | 6.1 | (6, 6.5) | 5
 
 			op2 := hb.Schedule(tc)[0]
-			testutil.CheckTransferPeerWithLeaderTransfer(c, op2, operator.OpHotRegion, 1, 4)
+			testutil.CheckTransferPeer(c, op2, operator.OpHotRegion, 1, 4)
 			// store bytekey rate (min, max): (6.1, 7.1) | 6.1 | (6, 6.5) | (5, 5.5)
 			c.Assert(op2.Cancel(), IsTrue)
 			// store byte/key rate (min, max): (6.6, 7.1) | 6.1 | (6, 6.5) | 5
 
 			op2 = hb.Schedule(tc)[0]
-			testutil.CheckTransferPeerWithLeaderTransfer(c, op2, operator.OpHotRegion, 1, 4)
+			testutil.CheckTransferPeer(c, op2, operator.OpHotRegion, 1, 4)
 			// store byte/key rate (min, max): (6.1, 7.1) | 6.1 | (6, 6.5) | (5, 5.5)
 
 			c.Assert(op1.Cancel(), IsTrue)
 			// store byte/key rate (min, max): (6.6, 7.1) | 6.1 | 6 | (5, 5.5)
 
 			op3 := hb.Schedule(tc)[0]
-			testutil.CheckTransferPeerWithLeaderTransfer(c, op3, operator.OpHotRegion, 1, 4)
+			testutil.CheckTransferPeer(c, op3, operator.OpHotRegion, 1, 4)
 			// store byte/key rate (min, max): (6.1, 7.1) | 6.1 | 6 | (5, 6)
 
 			ops := hb.Schedule(tc)
@@ -1313,4 +1346,29 @@ func nearlyAbout(f1, f2 float64) bool {
 		return true
 	}
 	return false
+}
+
+func (s *testHotSchedulerSuite) TestHotReadPeerSchedule(c *C) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	opt := config.NewTestOptions()
+	tc := mockcluster.NewCluster(ctx, opt)
+	tc.DisableFeature(versioninfo.JointConsensus)
+	tc.SetMaxReplicas(3)
+	tc.SetLocationLabels([]string{"zone", "host"})
+	for id := uint64(1); id <= 6; id++ {
+		tc.PutStoreWithLabels(id)
+	}
+
+	sche, err := schedule.CreateScheduler(HotReadRegionType, schedule.NewOperatorController(ctx, tc, nil), core.NewStorage(kv.NewMemoryKV()), schedule.ConfigJSONDecoder([]byte("null")))
+	c.Assert(err, IsNil)
+	hb := sche.(*hotScheduler)
+
+	tc.UpdateStorageReadStats(1, 20*MB, 20*MB)
+	tc.UpdateStorageReadStats(2, 19*MB, 19*MB)
+	tc.UpdateStorageReadStats(3, 19*MB, 19*MB)
+	tc.UpdateStorageReadStats(4, 0*MB, 0*MB)
+	tc.AddRegionWithPeerReadInfo(1, 3, 1, uint64(0.9*KB*float64(10)), uint64(0.9*KB*float64(10)), 10, []uint64{1, 2}, 3)
+	op := hb.Schedule(tc)[0]
+	testutil.CheckTransferPeer(c, op, operator.OpHotRegion, 1, 4)
 }

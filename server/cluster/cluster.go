@@ -365,6 +365,7 @@ func (c *RaftCluster) Stop() {
 	c.coordinator.stop()
 	c.Unlock()
 	c.wg.Wait()
+	log.Info("raftcluster is stopped")
 }
 
 // IsRunning return if the cluster is running.
@@ -536,8 +537,10 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 		c.limiter.Collect(newStore.GetStoreStats())
 	}
 
+	regionIDs := make(map[uint64]struct{}, len(stats.GetPeerStats()))
 	for _, peerStat := range stats.GetPeerStats() {
 		regionID := peerStat.GetRegionId()
+		regionIDs[regionID] = struct{}{}
 		region := c.GetRegion(regionID)
 		if region == nil {
 			log.Warn("discard hot peer stat for unknown region",
@@ -554,10 +557,11 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 		}
 		peerInfo := core.NewPeerInfo(peer, 0, 0,
 			peerStat.GetReadBytes(), peerStat.GetReadKeys(), interval)
-		item := statistics.NewFlowItem(peerInfo, region, nil)
+		item := statistics.NewPeerInfoItem(peerInfo, region)
 		c.hotStat.CheckReadAsync(item)
 	}
-
+	collect := statistics.NewUnReportStatsCollect(storeID, regionIDs, interval)
+	c.hotStat.CheckReadAsync(collect)
 	return nil
 }
 
@@ -573,7 +577,7 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 	// Put expiredStats into read/write queue to update stats
 	if len(expiredStats) > 0 {
 		for _, stat := range expiredStats {
-			item := statistics.NewFlowItem(nil, nil, stat)
+			item := statistics.NewExpiredStatItem(stat)
 			if stat.Kind == statistics.WriteFlow {
 				c.hotStat.CheckWriteAsync(item)
 			} else {
@@ -588,7 +592,7 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 			region.GetBytesWritten(), region.GetKeysWritten(),
 			0, 0,
 			interval)
-		item := statistics.NewFlowItem(peerInfo, region, nil)
+		item := statistics.NewPeerInfoItem(peerInfo, region)
 		c.hotStat.CheckWriteAsync(item)
 	}
 	c.RUnlock()
@@ -1012,9 +1016,6 @@ func (c *RaftCluster) checkStoreVersion(store *metapb.Store) error {
 }
 
 func (c *RaftCluster) checkStoreLabels(s *core.StoreInfo) error {
-	if c.opt.IsPlacementRulesEnabled() {
-		return nil
-	}
 	keysSet := make(map[string]struct{})
 	for _, k := range c.opt.GetLocationLabels() {
 		keysSet[k] = struct{}{}
@@ -1489,9 +1490,12 @@ func (c *RaftCluster) GetStoresLoads() map[uint64][]float64 {
 
 // RegionReadStats returns hot region's read stats.
 // The result only includes peers that are hot enough.
+// RegionStats is a thread-safe method
 func (c *RaftCluster) RegionReadStats() map[uint64][]*statistics.HotPeerStat {
-	// RegionStats is a thread-safe method
-	return c.hotStat.RegionStats(statistics.ReadFlow, c.GetOpts().GetHotRegionCacheHitsThreshold())
+	// As read stats are reported by store heartbeat, the threshold needs to be adjusted.
+	threshold := c.GetOpts().GetHotRegionCacheHitsThreshold() *
+		(statistics.RegionHeartBeatReportInterval / statistics.StoreHeartBeatReportInterval)
+	return c.hotStat.RegionStats(statistics.ReadFlow, threshold)
 }
 
 // RegionWriteStats returns hot region's write stats.
