@@ -46,26 +46,28 @@ func shouldBalance(cluster opt.Cluster, source, target *core.StoreInfo, region *
 	tolerantResource := getTolerantResource(cluster, region, kind)
 	// to avoid schedule too much, if A's core greater than B and C a little
 	// we want that A should be moved out one region not two
-	sourceInfluence := opInfluence.GetStoreInfluence(sourceID).ResourceProperty(kind) * influenceAmp
+	sourceInfluence := opInfluence.GetStoreInfluence(sourceID).ResourceProperty(kind)
 	// A->B, B's influence is positive , so B can become source schedule, it will move region from B to C
 	if sourceInfluence > 0 {
 		sourceInfluence = -sourceInfluence
 	}
 	// to avoid schedule too much, if A's score less than B and C in small range,
 	// we want that A can be moved in one region not two
-	targetInfluence := opInfluence.GetStoreInfluence(targetID).ResourceProperty(kind) * influenceAmp
+	targetInfluence := opInfluence.GetStoreInfluence(targetID).ResourceProperty(kind)
 	// to avoid schedule call back
 	// A->B, A's influence is negative，so A will be target,C may move region to A
 	if targetInfluence < 0 {
 		targetInfluence = -targetInfluence
 	}
-	sourceDelta, targetDelta := sourceInfluence-tolerantResource, targetInfluence+tolerantResource
+	//sourceDelta, targetDelta := sourceInfluence-tolerantResource, targetInfluence+tolerantResource
 	opts := cluster.GetOpts()
 	switch kind.Resource {
 	case core.LeaderKind:
+		sourceDelta, targetDelta := sourceInfluence-tolerantResource, targetInfluence+tolerantResource
 		sourceScore = source.LeaderScore(kind.Policy, sourceDelta)
 		targetScore = target.LeaderScore(kind.Policy, targetDelta)
 	case core.RegionKind:
+		sourceDelta, targetDelta := sourceInfluence*influenceAmp-tolerantResource, targetInfluence*influenceAmp+tolerantResource
 		sourceScore = source.RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), sourceDelta, 0)
 		targetScore = target.RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), targetDelta, 0)
 	}

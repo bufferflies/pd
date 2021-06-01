@@ -781,9 +781,8 @@ func createRegionForRuleFit(startKey, endKey []byte,
 }
 
 type ScoreFilter struct {
-	scope   string
-	score   float64
-	targets map[uint64]struct{}
+	scope string
+	score float64
 }
 
 // NewScoreFilter creates a Filter that filters all high score stores.
@@ -805,7 +804,7 @@ func (f *ScoreFilter) Type() string {
 }
 
 // Source return true
-func (f *ScoreFilter) Source(opt *config.PersistOptions, store *core.StoreInfo) bool {
+func (f *ScoreFilter) Source(opt *config.PersistOptions, _ *core.StoreInfo) bool {
 	return true
 }
 
