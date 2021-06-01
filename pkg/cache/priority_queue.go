@@ -91,7 +91,7 @@ type priorityHeap []*Entry
 // Len
 func (pq priorityHeap) Len() int { return len(pq) }
 
-// Lss
+// Less
 func (pq priorityHeap) Less(i, j int) bool {
 	return pq[i].Priority >= pq[j].Priority
 }

@@ -61,7 +61,7 @@ func NewCheckerController(ctx context.Context, cluster opt.Cluster, ruleManager 
 }
 
 // CheckRegion will check the region and add a new operator if needed.
-func (c *CheckerController) CheckRegion(region *core.RegionInfo) []*operator.Operator {
+func (c *CheckerController) CheckRegion(region *core.RegionInfo) (ops []*operator.Operator) {
 	// If PD has restarted, it need to check learners added before and promote them.
 	// Don't check isRaftLearnerEnabled cause it maybe disable learner feature but there are still some learners to promote.
 	opController := c.opController
@@ -72,36 +72,35 @@ func (c *CheckerController) CheckRegion(region *core.RegionInfo) []*operator.Ope
 
 	if c.opts.IsPlacementRulesEnabled() {
 		if op := c.ruleChecker.Check(region); op != nil {
-			added := false
-			// ignore spilt
-			if op.Kind()&operator.OpReplica != 0 {
-				missPeers, count := c.GetRuleChecker().GetMissPeer(region)
-				// miss replicate more than majority should has high priority.
-				// if less than majority, it will add waiting
-				if missPeers > count/2 {
-					c.AddMissRegions(missPeers, region)
-					added = true
-				} else {
-					c.RemoveMissRegions([]uint64{region.GetID()})
-				}
-			}
-			if opController.OperatorCount(operator.OpReplica) < c.opts.GetReplicaScheduleLimit() {
-				return []*operator.Operator{op}
-			}
-			operator.OperatorLimitCounter.WithLabelValues(c.ruleChecker.GetType(), operator.OpReplica.String()).Inc()
-			if !added {
-				c.regionWaitingList.Put(region.GetID(), nil)
-			}
+			ops = []*operator.Operator{op}
 		}
 	} else {
 		if op := c.learnerChecker.Check(region); op != nil {
 			return []*operator.Operator{op}
 		}
 		if op := c.replicaChecker.Check(region); op != nil {
-			if opController.OperatorCount(operator.OpReplica) < c.opts.GetReplicaScheduleLimit() {
-				return []*operator.Operator{op}
+			ops = []*operator.Operator{op}
+		}
+	}
+	if ops != nil && len(ops) > 0 {
+		added := false
+		op := ops[0]
+		// ignore spilt
+		if op.Kind()&operator.OpReplica != 0 {
+			// miss replicate more than majority should has high priority.
+			// if less than majority, it will add waiting
+			if op.IsLessMajority() {
+				c.AddMissRegions(op.GetMiss(), region)
+				added = true
+			} else {
+				c.RemoveMissRegions([]uint64{region.GetID()})
 			}
-			operator.OperatorLimitCounter.WithLabelValues(c.replicaChecker.GetType(), operator.OpReplica.String()).Inc()
+		}
+		if opController.OperatorCount(operator.OpReplica) < c.opts.GetReplicaScheduleLimit() {
+			return ops
+		}
+		operator.OperatorLimitCounter.WithLabelValues(c.replicaChecker.GetType(), operator.OpReplica.String()).Inc()
+		if !added {
 			c.regionWaitingList.Put(region.GetID(), nil)
 		}
 	}

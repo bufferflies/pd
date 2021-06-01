@@ -53,6 +53,8 @@ type Operator struct {
 	Counters         []prometheus.Counter
 	FinishedCounters []prometheus.Counter
 	AdditionalInfos  map[string]string
+	expect           int // region expect count
+	miss             int // region miss count include down,offline
 }
 
 // NewOperator creates a new operator.
@@ -343,4 +345,24 @@ func (o *Operator) GetAdditionalInfo() string {
 		}
 	}
 	return ""
+}
+
+// AddMiss add miss value
+func (o *Operator) AddMiss(miss int) {
+	o.miss = o.miss + miss
+}
+
+// AddCount add expect value
+func (o *Operator) AddExpect(expect int) {
+	o.expect = o.expect + expect
+}
+
+// IsLessMajority return true if miss greater than haft of expect
+func (o *Operator) IsLessMajority() bool {
+	return o.miss > o.expect/2
+}
+
+// GetMiss return miss count
+func (o *Operator) GetMiss() int {
+	return o.miss
 }

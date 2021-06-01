@@ -62,35 +62,42 @@ func (r *ReplicaChecker) GetType() string {
 }
 
 // Check verifies a region's replicas, creating an operator.Operator if need.
-func (r *ReplicaChecker) Check(region *core.RegionInfo) *operator.Operator {
+func (r *ReplicaChecker) Check(region *core.RegionInfo) (op *operator.Operator) {
 	checkerCounter.WithLabelValues("replica_checker", "check").Inc()
-	if op := r.checkDownPeer(region); op != nil {
+	if op = r.checkDownPeer(region); op != nil {
 		checkerCounter.WithLabelValues("replica_checker", "new-operator").Inc()
+	}
+	if miss, storeID := r.checkOfflinePeer(region); miss > 0 {
+		if op == nil {
+			checkerCounter.WithLabelValues("replica_checker", "new-operator").Inc()
+			op = r.fixPeer(region, storeID, offlineStatus)
+		}
+		op.AddMiss(miss)
+	}
+	if miss := r.checkMakeUpReplica(region); miss > 0 {
+		if op == nil {
+			checkerCounter.WithLabelValues("replica_checker", "new-operator").Inc()
+			op = r.fixMakeUpReplica(region)
+		}
+		op.AddMiss(miss)
+	}
+	if op != nil {
 		op.SetPriorityLevel(core.HighPriority)
+		op.AddExpect(r.opts.GetMaxReplicas())
 		return op
 	}
-	if op := r.checkOfflinePeer(region); op != nil {
-		checkerCounter.WithLabelValues("replica_checker", "new-operator").Inc()
-		op.SetPriorityLevel(core.HighPriority)
-		return op
-	}
-	if op := r.checkMakeUpReplica(region); op != nil {
-		checkerCounter.WithLabelValues("replica_checker", "new-operator").Inc()
-		op.SetPriorityLevel(core.HighPriority)
-		return op
-	}
-	if op := r.checkRemoveExtraReplica(region); op != nil {
+	if op = r.checkRemoveExtraReplica(region); op != nil {
 		checkerCounter.WithLabelValues("replica_checker", "new-operator").Inc()
 		return op
 	}
-	if op := r.checkLocationReplacement(region); op != nil {
+	if op = r.checkLocationReplacement(region); op != nil {
 		checkerCounter.WithLabelValues("replica_checker", "new-operator").Inc()
 		return op
 	}
 	return nil
 }
 
-func (r *ReplicaChecker) checkDownPeer(region *core.RegionInfo) *operator.Operator {
+func (r *ReplicaChecker) checkDownPeer(region *core.RegionInfo) (op *operator.Operator) {
 	if !r.opts.IsRemoveDownReplicaEnabled() {
 		return nil
 	}
@@ -112,20 +119,23 @@ func (r *ReplicaChecker) checkDownPeer(region *core.RegionInfo) *operator.Operat
 		if stats.GetDownSeconds() < uint64(r.opts.GetMaxStoreDownTime().Seconds()) {
 			continue
 		}
-
-		return r.fixPeer(region, storeID, downStatus)
+		if op != nil {
+			op.AddMiss(1)
+			continue
+		}
+		op = r.fixPeer(region, storeID, downStatus)
 	}
-	return nil
+	return op
 }
 
-func (r *ReplicaChecker) checkOfflinePeer(region *core.RegionInfo) *operator.Operator {
+func (r *ReplicaChecker) checkOfflinePeer(region *core.RegionInfo) (miss int, sID uint64) {
 	if !r.opts.IsReplaceOfflineReplicaEnabled() {
-		return nil
+		return
 	}
 
 	// just skip learner
 	if len(region.GetLearners()) != 0 {
-		return nil
+		return
 	}
 
 	for _, peer := range region.GetPeers() {
@@ -133,25 +143,29 @@ func (r *ReplicaChecker) checkOfflinePeer(region *core.RegionInfo) *operator.Ope
 		store := r.cluster.GetStore(storeID)
 		if store == nil {
 			log.Warn("lost the store, maybe you are recovering the PD cluster", zap.Uint64("store-id", storeID))
-			return nil
+			continue
 		}
 		if store.IsUp() {
 			continue
 		}
-
-		return r.fixPeer(region, storeID, offlineStatus)
+		if miss <= 0 {
+			sID = storeID
+		}
+		miss = miss + 1
 	}
-
-	return nil
+	return
 }
-
-func (r *ReplicaChecker) checkMakeUpReplica(region *core.RegionInfo) *operator.Operator {
+func (r *ReplicaChecker) checkMakeUpReplica(region *core.RegionInfo) (miss int) {
 	if !r.opts.IsMakeUpReplicaEnabled() {
-		return nil
+		return 0
 	}
 	if len(region.GetPeers()) >= r.opts.GetMaxReplicas() {
-		return nil
+		return r.opts.GetMaxReplicas() - len(region.GetPeers())
 	}
+	return 0
+}
+
+func (r *ReplicaChecker) fixMakeUpReplica(region *core.RegionInfo) *operator.Operator {
 	log.Debug("region has fewer than max replicas", zap.Uint64("region-id", region.GetID()), zap.Int("peers", len(region.GetPeers())))
 	regionStores := r.cluster.GetRegionStores(region)
 	target := r.strategy(region).SelectStoreToAdd(regionStores)
