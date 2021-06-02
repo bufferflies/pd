@@ -352,7 +352,7 @@ func (o *Operator) AddMiss(miss int) {
 	o.miss = o.miss + miss
 }
 
-// AddCount add expect value
+// AddExpect add expect value
 func (o *Operator) AddExpect(expect int) {
 	o.expect = o.expect + expect
 }
