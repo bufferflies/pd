@@ -145,8 +145,7 @@ func (c *RuleChecker) fixRulePeer(region *core.RegionInfo, fit *placement.Region
 				continue
 			}
 			checkerCounter.WithLabelValues("rule_checker", "replace-offline").Inc()
-			op, err = c.replaceRulePeer(region, rf, peer, downStatus)
-			if op, err = c.replaceRulePeer(region, rf, peer, downStatus); op != nil {
+			if op, err = c.replaceRulePeer(region, rf, peer, offlineStatus); op != nil {
 				op.AddMiss(1)
 			}
 		}

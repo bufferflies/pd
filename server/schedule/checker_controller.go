@@ -82,7 +82,7 @@ func (c *CheckerController) CheckRegion(region *core.RegionInfo) (ops []*operato
 			ops = []*operator.Operator{op}
 		}
 	}
-	if ops != nil && len(ops) > 0 {
+	if len(ops) > 0 {
 		added := false
 		op := ops[0]
 		// ignore spilt
