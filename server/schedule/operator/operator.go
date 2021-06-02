@@ -366,3 +366,8 @@ func (o *Operator) IsLessMajority() bool {
 func (o *Operator) GetMiss() int {
 	return o.miss
 }
+
+// GetExpect return expect count
+func (o *Operator) GetExpect() int {
+	return o.expect
+}

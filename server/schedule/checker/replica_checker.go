@@ -72,14 +72,18 @@ func (r *ReplicaChecker) Check(region *core.RegionInfo) (op *operator.Operator) 
 			checkerCounter.WithLabelValues("replica_checker", "new-operator").Inc()
 			op = r.fixPeer(region, storeID, offlineStatus)
 		}
-		op.AddMiss(miss)
+		if op != nil {
+			op.AddMiss(miss)
+		}
 	}
 	if miss := r.checkMakeUpReplica(region); miss > 0 {
 		if op == nil {
 			checkerCounter.WithLabelValues("replica_checker", "new-operator").Inc()
 			op = r.fixMakeUpReplica(region)
 		}
-		op.AddMiss(miss)
+		if op != nil {
+			op.AddMiss(miss)
+		}
 	}
 	if op != nil {
 		op.SetPriorityLevel(core.HighPriority)
@@ -159,7 +163,7 @@ func (r *ReplicaChecker) checkMakeUpReplica(region *core.RegionInfo) (miss int) 
 	if !r.opts.IsMakeUpReplicaEnabled() {
 		return 0
 	}
-	if len(region.GetPeers()) >= r.opts.GetMaxReplicas() {
+	if len(region.GetPeers()) < r.opts.GetMaxReplicas() {
 		return r.opts.GetMaxReplicas() - len(region.GetPeers())
 	}
 	return 0
