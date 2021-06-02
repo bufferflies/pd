@@ -2,17 +2,23 @@ package cache
 
 import "container/heap"
 
+const (
+	defaultCapacity = 8096
+)
+
 // PriorityQueue queue has priority, the first element has the highest priority
 type PriorityQueue struct {
-	queue *priorityHeap
-	items map[interface{}]*Entry
+	queue    *priorityHeap
+	items    map[interface{}]*Entry
+	capacity int
 }
 
 // NewPriorityQueue construct of priority queue
 func NewPriorityQueue() *PriorityQueue {
 	return &PriorityQueue{
-		queue: &priorityHeap{},
-		items: make(map[interface{}]*Entry),
+		queue:    &priorityHeap{},
+		items:    make(map[interface{}]*Entry),
+		capacity: defaultCapacity,
 	}
 }
 
@@ -20,6 +26,9 @@ func NewPriorityQueue() *PriorityQueue {
 func (pq *PriorityQueue) Push(priority int, x interface{}) {
 	v, ok := pq.items[x]
 	if !ok {
+		if pq.Size() > pq.capacity {
+			return
+		}
 		v = &Entry{Value: x, Priority: priority}
 		pq.queue.Push(v)
 	} else {
@@ -62,7 +71,6 @@ func (pq *PriorityQueue) RemoveValues(values []interface{}) {
 			delete(pq.items, v)
 		}
 	}
-
 }
 
 // Has it will return true if queue has the value

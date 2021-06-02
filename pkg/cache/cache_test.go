@@ -297,6 +297,7 @@ func (s *testRegionCacheSuite) TestTwoQueueCache(c *C) {
 	c.Assert(ok, IsFalse)
 	c.Assert(val, IsNil)
 }
+
 func (s *testRegionCacheSuite) TestPriorityQueue(c *C) {
 	pq := NewPriorityQueue()
 	pq.Push(1, 1)
@@ -307,6 +308,7 @@ func (s *testRegionCacheSuite) TestPriorityQueue(c *C) {
 	// case1 test getAll ,the highest element should be the first
 	entries := pq.queue.GetAll(-1)
 	c.Assert(len(entries), Equals, 3)
+	c.Assert(pq.Has(3), NotNil)
 	c.Assert(entries[0].Priority, Equals, 5)
 	c.Assert(entries[0].Value, Equals, 3)
 
@@ -324,6 +326,8 @@ func (s *testRegionCacheSuite) TestPriorityQueue(c *C) {
 	c.Assert(entry.Priority, Equals, 3)
 	c.Assert(entry.Index, Equals, -1)
 	c.Assert(entry.Value, Equals, 2)
+	c.Assert(pq.Has(2), Equals, false)
+	c.Assert(pq.Has(1), Equals, true)
 
 	// case4 remove all element
 	pq.RemoveValues([]interface{}{1})

@@ -447,7 +447,7 @@ func (s *testCoordinatorSuite) TestReplica(c *C) {
 	waitNoResponse(c, stream)
 }
 
-func (s *testCoordinatorSuite) TestFixLessPeer(c *C) {
+func (s *testCoordinatorSuite) TestCheckMissRegions(c *C) {
 	tc, co, cleanup := prepare(func(cfg *config.ScheduleConfig) {
 		// Turn off replica scheduling.
 		cfg.ReplicaScheduleLimit = 0
@@ -478,8 +478,15 @@ func (s *testCoordinatorSuite) TestFixLessPeer(c *C) {
 	co.wg.Add(1)
 	co.patrolRegions()
 	c.Assert(len(oc.GetOperators()), Equals, 1)
-	c.Assert(oc.GetOperator(1), NotNil)
+	op := oc.GetOperator(1)
+	c.Assert(op, NotNil)
 	c.Assert(len(co.checkers.GetMissRegions()), Equals, 1)
+
+	// case 3: region-1 add one replicate
+	c.Assert(tc.addLeaderRegion(1, 2, 3), IsNil)
+	co.wg.Add(1)
+	co.patrolRegions()
+	c.Assert(len(co.checkers.GetMissRegions()), Equals, 0)
 
 	co.wg.Wait()
 	c.Assert(failpoint.Disable("github.com/tikv/pd/server/cluster/break-patrol"), IsNil)

@@ -111,7 +111,9 @@ func (c *coordinator) patrolRegions() {
 		}
 
 		// Check miss region first
-		c.checkMissRegions()
+		if c.checkMissRegions() {
+			continue
+		}
 		// Check suspect regions first.
 		c.checkSuspectRegions()
 		// Check suspect key ranges
