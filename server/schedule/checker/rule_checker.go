@@ -86,15 +86,19 @@ func (c *RuleChecker) Check(region *core.RegionInfo) (op *operator.Operator) {
 	}
 	log.Debug("fail to fix orphan peer", errs.ZapError(err))
 
+	expect := 0
 	for _, rf := range fit.RuleFits {
 		if op != nil {
-			op.AddExpect(rf.Rule.Count)
+			continue
 		}
-		op, err = c.fixRulePeer(region, fit, rf)
-		if err != nil {
+		expect = expect + rf.Rule.Count
+		if op, err = c.fixRulePeer(region, fit, rf); err != nil {
 			log.Debug("fail to fix rule peer", zap.String("rule-group", rf.Rule.GroupID), zap.String("rule-id", rf.Rule.ID), errs.ZapError(err))
 			continue
 		}
+	}
+	if op != nil {
+		op.AddExpect(expect)
 	}
 	return op
 }
@@ -119,8 +123,9 @@ func (c *RuleChecker) fixRulePeer(region *core.RegionInfo, fit *placement.Region
 	// make up peers.
 	if len(rf.Peers) < rf.Rule.Count {
 		op, err = c.addRulePeer(region, rf)
-		op.AddMiss(rf.Rule.Count - len(rf.Peers))
-		return
+		if op != nil {
+			op.AddMiss(rf.Rule.Count - len(rf.Peers))
+		}
 	}
 	// fix down/offline peers.
 	for _, peer := range rf.Peers {
@@ -130,9 +135,9 @@ func (c *RuleChecker) fixRulePeer(region *core.RegionInfo, fit *placement.Region
 				continue
 			}
 			checkerCounter.WithLabelValues("rule_checker", "replace-down").Inc()
-			op, err = c.replaceRulePeer(region, rf, peer, downStatus)
-			op.AddMiss(1)
-
+			if op, err = c.replaceRulePeer(region, rf, peer, downStatus); op != nil {
+				op.AddMiss(1)
+			}
 		}
 		if c.isOfflinePeer(peer) {
 			if op != nil {
@@ -141,6 +146,9 @@ func (c *RuleChecker) fixRulePeer(region *core.RegionInfo, fit *placement.Region
 			}
 			checkerCounter.WithLabelValues("rule_checker", "replace-offline").Inc()
 			op, err = c.replaceRulePeer(region, rf, peer, downStatus)
+			if op, err = c.replaceRulePeer(region, rf, peer, downStatus); op != nil {
+				op.AddMiss(1)
+			}
 		}
 	}
 	if op != nil {
