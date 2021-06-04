@@ -140,7 +140,7 @@ func (c *RuleChecker) fixRulePeer(region *core.RegionInfo, fit *placement.Region
 				continue
 			}
 			checkerCounter.WithLabelValues("rule_checker", "replace-down").Inc()
-			if op, err = c.replaceUnexpectRulePeer(region, rf, fit, peer, downStatus); op != nil {
+			if op, err = c.replaceUnexpectRulePeer(region, rf, fit, peer, downStatus); err == nil && op != nil {
 				op.AddMiss(1)
 			}
 		}
@@ -150,10 +150,9 @@ func (c *RuleChecker) fixRulePeer(region *core.RegionInfo, fit *placement.Region
 				continue
 			}
 			checkerCounter.WithLabelValues("rule_checker", "replace-offline").Inc()
-			if op, err = c.replaceUnexpectRulePeer(region, rf, fit, peer, offlineStatus); op != nil {
+			if op, err = c.replaceUnexpectRulePeer(region, rf, fit, peer, offlineStatus); err == nil && op != nil {
 				op.AddMiss(1)
 			}
-			return c.replaceUnexpectRulePeer(region, rf, fit, peer, offlineStatus)
 		}
 	}
 	if op != nil {
