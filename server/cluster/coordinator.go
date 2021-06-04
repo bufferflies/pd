@@ -166,6 +166,7 @@ func (c *coordinator) checkMissRegions() bool {
 	add := make([]*cache.Entry, 0)
 	remove := make([]uint64, 0)
 	missPeers := c.checkers.GetMissRegions()
+	log.Debug("check miss regions", zap.Int("miss region count", len(missPeers)))
 	for _, entry := range missPeers {
 		id, ok := entry.Value.(uint64)
 		if !ok {
