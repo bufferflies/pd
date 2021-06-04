@@ -320,8 +320,13 @@ func (s *testRegionCacheSuite) TestPriorityQueue(c *C) {
 	c.Assert(entry.Index, Equals, 0)
 	c.Assert(entry.Value, Equals, 2)
 
-	// case3 update entry should be fix
+	// case3 remove last element
 	pq.Update(entry, 3)
+	pq.RemoveValues([]interface{}{2})
+	c.Assert(pq.Size(), Equals, 1)
+
+	// case4 update entry should be fix
+	pq.Push(3, 2)
 	entry = pq.Pop()
 	c.Assert(entry.Priority, Equals, 3)
 	c.Assert(entry.Index, Equals, -1)
@@ -329,7 +334,7 @@ func (s *testRegionCacheSuite) TestPriorityQueue(c *C) {
 	c.Assert(pq.Has(2), Equals, false)
 	c.Assert(pq.Has(1), Equals, true)
 
-	// case4 remove all element
+	// case5 remove all element
 	pq.RemoveValues([]interface{}{1})
 	c.Assert(pq.Size(), Equals, 0)
 	c.Assert(len(pq.items), Equals, 0)

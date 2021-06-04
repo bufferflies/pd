@@ -146,7 +146,10 @@ func (pq *priorityHeap) remove(id int) interface{} {
 	result := old[id]
 	pq.Swap(id, len(old)-1)
 	*pq = old[:len(old)-1]
-	pq.fix(old[id])
+	// skip if element is the last element
+	if id < pq.Len() {
+		pq.fix(old[id])
+	}
 	result.Index = -1 // safe mark
 	return result
 }
