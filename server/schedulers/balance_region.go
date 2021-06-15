@@ -199,7 +199,7 @@ func (s *balanceRegionScheduler) transferPeer(plan *balancePlan) *operator.Opera
 	filters := []filter.Filter{
 		filter.NewExcludedFilter(s.GetName(), nil, plan.region.GetStoreIds()),
 		filter.NewPlacementSafeguard(s.GetName(), plan.cluster, plan.region, plan.source),
-		filter.NewScoreFilter(s.GetName(), plan.source, plan.cluster.GetOpts()),
+		filter.NewRegionScoreFilter(s.GetName(), plan.source, plan.cluster.GetOpts()),
 		filter.NewSpecialUseFilter(s.GetName()),
 		&filter.StoreStateFilter{ActionScope: s.GetName(), MoveRegion: true},
 	}
