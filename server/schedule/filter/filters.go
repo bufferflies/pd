@@ -780,37 +780,37 @@ func createRegionForRuleFit(startKey, endKey []byte,
 	return cloneRegion
 }
 
-// ScoreFilter filter store that score higher than src
-type ScoreFilter struct {
+// RegionScoreFilter filter target store that it's score must higher than the given score
+type RegionScoreFilter struct {
 	scope string
 	score float64
 }
 
-// NewScoreFilter creates a Filter that filters all high score stores.
-func NewScoreFilter(scope string, sources *core.StoreInfo, opt *config.PersistOptions) Filter {
-	return &ScoreFilter{
+// NewRegionScoreFilter creates a Filter that filters all high score stores.
+func NewRegionScoreFilter(scope string, source *core.StoreInfo, opt *config.PersistOptions) Filter {
+	return &RegionScoreFilter{
 		scope: scope,
-		score: sources.RegionScore(opt.GetRegionScoreFormulaVersion(), opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0, 0),
+		score: source.RegionScore(opt.GetRegionScoreFormulaVersion(), opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0, 0),
 	}
 }
 
-// Scope scope
-func (f *ScoreFilter) Scope() string {
+// Scope scope only for balance region
+func (f *RegionScoreFilter) Scope() string {
 	return f.scope
 }
 
-// Type type
-func (f *ScoreFilter) Type() string {
-	return "score-filter"
+// Type type region score filter
+func (f *RegionScoreFilter) Type() string {
+	return "region-score-filter"
 }
 
-// Source return true
-func (f *ScoreFilter) Source(opt *config.PersistOptions, _ *core.StoreInfo) bool {
+// Source it ignore source
+func (f *RegionScoreFilter) Source(opt *config.PersistOptions, _ *core.StoreInfo) bool {
 	return true
 }
 
-// Target return true if target score greater than src
-func (f *ScoreFilter) Target(opt *config.PersistOptions, store *core.StoreInfo) bool {
+// Target target's score less than source's score
+func (f *RegionScoreFilter) Target(opt *config.PersistOptions, store *core.StoreInfo) bool {
 	score := store.RegionScore(opt.GetRegionScoreFormulaVersion(), opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0, 0)
 	return score < f.score
 }

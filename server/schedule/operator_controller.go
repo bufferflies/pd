@@ -52,7 +52,7 @@ var (
 	PushOperatorTickInterval = 500 * time.Millisecond
 	// StoreBalanceBaseTime represents the base time of balance rate.
 	StoreBalanceBaseTime float64 = 60
-	// FastOperatorFinishTime min finish time,if finish duration less than it,op will be pushed to fast operator queue
+	// FastOperatorFinishTime min finish time, if finish duration less than it,op will be pushed to fast operator queue
 	FastOperatorFinishTime = 10 * time.Second
 )
 
@@ -816,7 +816,7 @@ func (oc *OperatorController) GetOpInfluence(cluster opt.Cluster) operator.OpInf
 	return influence
 }
 
-// GetFastOpInfluence get fast finish influence and remove more than 10s operator
+// GetFastOpInfluence get fast finish operator influence
 func (oc *OperatorController) GetFastOpInfluence(cluster opt.Cluster, influence operator.OpInfluence) {
 	for _, id := range oc.fastOperators.GetAllID() {
 		value, ok := oc.fastOperators.Get(id)
@@ -832,7 +832,6 @@ func (oc *OperatorController) GetFastOpInfluence(cluster opt.Cluster, influence 
 			log.Debug("op influence less than 10s", zap.Uint64("region-id", op.RegionID()))
 			op.TotalInfluence(influence, region)
 		}
-
 	}
 }
 
