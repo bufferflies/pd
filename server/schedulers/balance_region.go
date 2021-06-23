@@ -146,8 +146,8 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) []*operator.Opera
 	sort.Slice(stores, func(i, j int) bool {
 		iOp := plan.GetOpInfluence(stores[i].GetID())
 		jOp := plan.GetOpInfluence(stores[j].GetID())
-		return stores[i].RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), iOp, 0) >
-			stores[j].RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), jOp, 0)
+		return stores[i].RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), iOp) >
+			stores[j].RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), jOp)
 	})
 	for _, plan.source = range stores {
 		for i := 0; i < balanceRegionRetryLimit; i++ {
