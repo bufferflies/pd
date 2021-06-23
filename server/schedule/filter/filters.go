@@ -790,7 +790,7 @@ type RegionScoreFilter struct {
 func NewRegionScoreFilter(scope string, source *core.StoreInfo, opt *config.PersistOptions) Filter {
 	return &RegionScoreFilter{
 		scope: scope,
-		score: source.RegionScore(opt.GetRegionScoreFormulaVersion(), opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0, 0),
+		score: source.RegionScore(opt.GetRegionScoreFormulaVersion(), opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0),
 	}
 }
 
@@ -811,6 +811,6 @@ func (f *RegionScoreFilter) Source(opt *config.PersistOptions, _ *core.StoreInfo
 
 // Target target's score less than source's score
 func (f *RegionScoreFilter) Target(opt *config.PersistOptions, store *core.StoreInfo) bool {
-	score := store.RegionScore(opt.GetRegionScoreFormulaVersion(), opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0, 0)
+	score := store.RegionScore(opt.GetRegionScoreFormulaVersion(), opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0)
 	return score < f.score
 }
