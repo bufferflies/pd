@@ -297,3 +297,55 @@ func (s *testRegionCacheSuite) TestTwoQueueCache(c *C) {
 	c.Assert(ok, IsFalse)
 	c.Assert(val, IsNil)
 }
+
+func (s *testRegionCacheSuite) TestPriorityQueue(c *C) {
+	pq := NewPriorityQueue(0)
+	c.Assert(pq.Put(1, 1), IsFalse)
+
+	// it will have priority-value pair as 1-1 2-2 3-3
+	pq = NewPriorityQueue(3)
+	c.Assert(pq.Put(1, 1), IsTrue)
+	c.Assert(pq.Put(2, 2), IsTrue)
+	c.Assert(pq.Put(3, 4), IsTrue)
+	c.Assert(pq.Put(5, 4), IsTrue)
+	c.Assert(pq.Get(4).retry, Equals, 0)
+	c.Assert(pq.Put(6, 5), IsFalse)
+	c.Assert(pq.Put(3, 3), IsTrue)
+	c.Assert(pq.Put(3, 3), IsTrue)
+	c.Assert(pq.Get(3).retry, Equals, 1)
+	c.Assert(pq.Get(4), IsNil)
+	c.Assert(pq.Len(), Equals, 3)
+	c.Assert(pq.Peek().Priority, Equals, 1)
+	c.Assert(pq.Tail().Priority, Equals, 3)
+
+	// case1 test getAll ,the highest element should be the first
+	entries := pq.Elems()
+	c.Assert(len(entries), Equals, 3)
+	c.Assert(entries[0].Priority, Equals, 1)
+	c.Assert(entries[0].Value, Equals, 1)
+
+	// case2 test remove the high element, and the second element should be the first
+	pq.Remove(1)
+	c.Assert(pq.Get(1), IsNil)
+	c.Assert(pq.Len(), Equals, 2)
+	entry := pq.Peek()
+	c.Assert(entry.Priority, Equals, 2)
+	c.Assert(entry.Value, Equals, 2)
+
+	// case3 update 3's priority to highest
+	pq.Put(-1, 3)
+	entry = pq.Peek()
+	c.Assert(entry.Priority, Equals, -1)
+	c.Assert(entry.Value, Equals, 3)
+	pq.Remove(entry.Value)
+	c.Assert(pq.Peek().Value, Equals, 2)
+	//c.Assert(pq.Tail().Value, Equals, 3)
+	c.Assert(pq.Len(), Equals, 1)
+
+	// case4 remove all element
+	pq.Remove(2)
+	c.Assert(pq.Len(), Equals, 0)
+	c.Assert(len(pq.items), Equals, 0)
+	c.Assert(pq.Peek(), IsNil)
+	c.Assert(pq.Tail(), IsNil)
+}
