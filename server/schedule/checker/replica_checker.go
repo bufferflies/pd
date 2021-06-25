@@ -119,7 +119,7 @@ func pushPriorityQueue(replicas, offlineCount, downCount, makeUpCount int, regio
 	}
 }
 
-func (r *ReplicaChecker) checkDownPeer(region *core.RegionInfo) (downCount int, sId uint64) {
+func (r *ReplicaChecker) checkDownPeer(region *core.RegionInfo) (downCount int, sID uint64) {
 	if !r.opts.IsRemoveDownReplicaEnabled() {
 		return
 	}
@@ -142,7 +142,7 @@ func (r *ReplicaChecker) checkDownPeer(region *core.RegionInfo) (downCount int, 
 			continue
 		}
 		downCount = downCount + 1
-		sId = storeID
+		sID = storeID
 	}
 	return
 }
