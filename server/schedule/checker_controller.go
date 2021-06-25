@@ -26,7 +26,10 @@ import (
 )
 
 // DefaultCacheSize is the default length of waiting list.
-const DefaultCacheSize = 1000
+const (
+	DefaultCacheSize         = 1000
+	DefaultPriorityQueueSize = 1280
+)
 
 // CheckerController is used to manage all checkers.
 type CheckerController struct {
@@ -39,27 +42,30 @@ type CheckerController struct {
 	mergeChecker      *checker.MergeChecker
 	jointStateChecker *checker.JointStateChecker
 	regionWaitingList cache.Cache
+	priorityQueue     *cache.PriorityQueue
 }
 
 // NewCheckerController create a new CheckerController.
 // TODO: isSupportMerge should be removed.
 func NewCheckerController(ctx context.Context, cluster opt.Cluster, ruleManager *placement.RuleManager, opController *OperatorController) *CheckerController {
 	regionWaitingList := cache.NewDefaultCache(DefaultCacheSize)
+	priorityQueue := cache.NewPriorityQueue(DefaultPriorityQueueSize)
 	return &CheckerController{
 		cluster:           cluster,
 		opts:              cluster.GetOpts(),
 		opController:      opController,
 		learnerChecker:    checker.NewLearnerChecker(cluster),
-		replicaChecker:    checker.NewReplicaChecker(cluster, regionWaitingList),
-		ruleChecker:       checker.NewRuleChecker(cluster, ruleManager, regionWaitingList),
+		replicaChecker:    checker.NewReplicaChecker(cluster, regionWaitingList, priorityQueue),
+		ruleChecker:       checker.NewRuleChecker(cluster, ruleManager, regionWaitingList, priorityQueue),
 		mergeChecker:      checker.NewMergeChecker(ctx, cluster),
 		jointStateChecker: checker.NewJointStateChecker(cluster),
 		regionWaitingList: regionWaitingList,
+		priorityQueue:     priorityQueue,
 	}
 }
 
 // CheckRegion will check the region and add a new operator if needed.
-func (c *CheckerController) CheckRegion(region *core.RegionInfo) []*operator.Operator {
+func (c *CheckerController) CheckRegion(region *core.RegionInfo) (ops []*operator.Operator) {
 	// If PD has restarted, it need to check learners added before and promote them.
 	// Don't check isRaftLearnerEnabled cause it maybe disable learner feature but there are still some learners to promote.
 	opController := c.opController
@@ -70,23 +76,22 @@ func (c *CheckerController) CheckRegion(region *core.RegionInfo) []*operator.Ope
 
 	if c.opts.IsPlacementRulesEnabled() {
 		if op := c.ruleChecker.Check(region); op != nil {
-			if opController.OperatorCount(operator.OpReplica) < c.opts.GetReplicaScheduleLimit() {
-				return []*operator.Operator{op}
-			}
-			operator.OperatorLimitCounter.WithLabelValues(c.ruleChecker.GetType(), operator.OpReplica.String()).Inc()
-			c.regionWaitingList.Put(region.GetID(), nil)
+			ops = []*operator.Operator{op}
 		}
 	} else {
 		if op := c.learnerChecker.Check(region); op != nil {
 			return []*operator.Operator{op}
 		}
 		if op := c.replicaChecker.Check(region); op != nil {
-			if opController.OperatorCount(operator.OpReplica) < c.opts.GetReplicaScheduleLimit() {
-				return []*operator.Operator{op}
-			}
-			operator.OperatorLimitCounter.WithLabelValues(c.replicaChecker.GetType(), operator.OpReplica.String()).Inc()
-			c.regionWaitingList.Put(region.GetID(), nil)
+			ops = []*operator.Operator{op}
 		}
+	}
+	if len(ops) > 0 {
+		if opController.OperatorCount(operator.OpReplica) < c.opts.GetReplicaScheduleLimit() {
+			return ops
+		}
+		operator.OperatorLimitCounter.WithLabelValues(c.ruleChecker.GetType(), operator.OpReplica.String()).Inc()
+		c.regionWaitingList.Put(region.GetID(), nil)
 	}
 
 	if c.mergeChecker != nil {
@@ -121,4 +126,18 @@ func (c *CheckerController) AddWaitingRegion(region *core.RegionInfo) {
 // RemoveWaitingRegion removes the region from the waiting list.
 func (c *CheckerController) RemoveWaitingRegion(id uint64) {
 	c.regionWaitingList.Remove(id)
+}
+
+// GetPriorityRegions returns all regions in the priority queue
+func (c *CheckerController) GetPriorityRegions() []*cache.Entry {
+	return c.priorityQueue.Elems()
+}
+
+func (c *CheckerController) GetPriorityQueueSize() int {
+	return c.priorityQueue.Len()
+}
+
+// RemovePriorityRegion removes the region from the priority queue
+func (c *CheckerController) RemovePriorityRegion(id uint64) {
+	c.priorityQueue.Remove(id)
 }

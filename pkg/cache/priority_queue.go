@@ -44,9 +44,9 @@ func (pq *PriorityQueue) Put(priority int, value interface{}) bool {
 		if entry.Priority != priority {
 			pq.btree.Delete(entry)
 			entry.Priority = priority
-			entry.retry = 0
+			entry.Retry = 0
 		} else {
-			entry.retry = entry.retry + 1
+			entry.Retry = entry.Retry + 1
 		}
 	}
 	entry.Last = time.Now()
@@ -109,7 +109,7 @@ type Entry struct {
 	Priority int
 	Value    interface{}
 	Last     time.Time
-	retry    int
+	Retry    int
 }
 
 // Less return true if the entry has smaller priority

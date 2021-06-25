@@ -16,10 +16,11 @@ package checker
 import (
 	"fmt"
 
+	"github.com/tikv/pd/pkg/errs"
+
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/cache"
-	"github.com/tikv/pd/pkg/errs"
 	"github.com/tikv/pd/server/config"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule/operator"
@@ -32,8 +33,11 @@ const (
 )
 
 const (
-	offlineStatus = "offline"
-	downStatus    = "down"
+	offlineStatus         = "offline"
+	downStatus            = "down"
+	downPriorityWeight    = 10
+	offlinePriorityWeight = 1
+	makeupPriorityWeight  = 10
 )
 
 // ReplicaChecker ensures region has the best replicas.
@@ -45,14 +49,16 @@ type ReplicaChecker struct {
 	cluster           opt.Cluster
 	opts              *config.PersistOptions
 	regionWaitingList cache.Cache
+	priorityQueue     *cache.PriorityQueue
 }
 
 // NewReplicaChecker creates a replica checker.
-func NewReplicaChecker(cluster opt.Cluster, regionWaitingList cache.Cache) *ReplicaChecker {
+func NewReplicaChecker(cluster opt.Cluster, regionWaitingList cache.Cache, priorityQueue *cache.PriorityQueue) *ReplicaChecker {
 	return &ReplicaChecker{
 		cluster:           cluster,
 		opts:              cluster.GetOpts(),
 		regionWaitingList: regionWaitingList,
+		priorityQueue:     priorityQueue,
 	}
 }
 
@@ -62,22 +68,33 @@ func (r *ReplicaChecker) GetType() string {
 }
 
 // Check verifies a region's replicas, creating an operator.Operator if need.
-func (r *ReplicaChecker) Check(region *core.RegionInfo) *operator.Operator {
+func (r *ReplicaChecker) Check(region *core.RegionInfo) (op *operator.Operator) {
 	checkerCounter.WithLabelValues("replica_checker", "check").Inc()
-	if op := r.checkDownPeer(region); op != nil {
-		checkerCounter.WithLabelValues("replica_checker", "new-operator").Inc()
-		op.SetPriorityLevel(core.HighPriority)
-		return op
+	downCount, offlineCount, makeUpCount := 0, 0, 0
+	sID := uint64(0)
+	if downCount, sID = r.checkDownPeer(region); downCount > 0 {
+		op = r.fixPeer(region, sID, downStatus)
 	}
-	if op := r.checkOfflinePeer(region); op != nil {
-		checkerCounter.WithLabelValues("replica_checker", "new-operator").Inc()
-		op.SetPriorityLevel(core.HighPriority)
-		return op
+	if offlineCount, sID = r.checkOfflinePeer(region); offlineCount > 0 {
+		if op == nil {
+			op = r.fixPeer(region, sID, offlineStatus)
+		}
 	}
-	if op := r.checkMakeUpReplica(region); op != nil {
+	if makeUpCount = r.checkMakeUpReplica(region); makeUpCount > 0 {
+		if op == nil {
+			op = r.fixMakeUpReplica(region)
+		}
+	}
+	majority := len(region.GetPeers())/2 + 1
+	// region member up must bigger than majority
+	if downCount >= majority {
+		return nil
+	}
+	pushPriorityQueue(r.opts.GetMaxReplicas(), offlineCount, downCount, makeUpCount, region.GetID(), r.priorityQueue)
+	if op != nil {
 		checkerCounter.WithLabelValues("replica_checker", "new-operator").Inc()
 		op.SetPriorityLevel(core.HighPriority)
-		return op
+		return
 	}
 	if op := r.checkRemoveExtraReplica(region); op != nil {
 		checkerCounter.WithLabelValues("replica_checker", "new-operator").Inc()
@@ -90,9 +107,20 @@ func (r *ReplicaChecker) Check(region *core.RegionInfo) *operator.Operator {
 	return nil
 }
 
-func (r *ReplicaChecker) checkDownPeer(region *core.RegionInfo) *operator.Operator {
+func pushPriorityQueue(replicas, offlineCount, downCount, makeUpCount int, regionID uint64, queue *cache.PriorityQueue) {
+	tolerate := replicas / 2
+	priority := tolerate - offlinePriorityWeight*offlineCount - downCount*downPriorityWeight - makeupPriorityWeight*makeUpCount
+	//  some region peers is wrong, need to fix
+	if priority != tolerate {
+		queue.Put(priority, regionID)
+	} else {
+		queue.Remove(regionID)
+	}
+}
+
+func (r *ReplicaChecker) checkDownPeer(region *core.RegionInfo) (downCount int, sId uint64) {
 	if !r.opts.IsRemoveDownReplicaEnabled() {
-		return nil
+		return
 	}
 
 	for _, stats := range region.GetDownPeers() {
@@ -104,7 +132,7 @@ func (r *ReplicaChecker) checkDownPeer(region *core.RegionInfo) *operator.Operat
 		store := r.cluster.GetStore(storeID)
 		if store == nil {
 			log.Warn("lost the store, maybe you are recovering the PD cluster", zap.Uint64("store-id", storeID))
-			return nil
+			return
 		}
 		if store.DownTime() < r.opts.GetMaxStoreDownTime() {
 			continue
@@ -112,20 +140,20 @@ func (r *ReplicaChecker) checkDownPeer(region *core.RegionInfo) *operator.Operat
 		if stats.GetDownSeconds() < uint64(r.opts.GetMaxStoreDownTime().Seconds()) {
 			continue
 		}
-
-		return r.fixPeer(region, storeID, downStatus)
+		downCount = downCount + 1
+		sId = storeID
 	}
-	return nil
+	return
 }
 
-func (r *ReplicaChecker) checkOfflinePeer(region *core.RegionInfo) *operator.Operator {
+func (r *ReplicaChecker) checkOfflinePeer(region *core.RegionInfo) (offlineCount int, sID uint64) {
 	if !r.opts.IsReplaceOfflineReplicaEnabled() {
-		return nil
+		return
 	}
 
 	// just skip learner
 	if len(region.GetLearners()) != 0 {
-		return nil
+		return
 	}
 
 	for _, peer := range region.GetPeers() {
@@ -133,25 +161,29 @@ func (r *ReplicaChecker) checkOfflinePeer(region *core.RegionInfo) *operator.Ope
 		store := r.cluster.GetStore(storeID)
 		if store == nil {
 			log.Warn("lost the store, maybe you are recovering the PD cluster", zap.Uint64("store-id", storeID))
-			return nil
+			return
 		}
 		if store.IsUp() {
 			continue
 		}
+		offlineCount = offlineCount + 1
+		sID = storeID
 
-		return r.fixPeer(region, storeID, offlineStatus)
 	}
-
-	return nil
+	return
 }
 
-func (r *ReplicaChecker) checkMakeUpReplica(region *core.RegionInfo) *operator.Operator {
+func (r *ReplicaChecker) checkMakeUpReplica(region *core.RegionInfo) int {
 	if !r.opts.IsMakeUpReplicaEnabled() {
-		return nil
+		return 0
 	}
-	if len(region.GetPeers()) >= r.opts.GetMaxReplicas() {
-		return nil
+	if len(region.GetPeers()) < r.opts.GetMaxReplicas() {
+		return r.opts.GetMaxReplicas() - len(region.GetPeers())
 	}
+	return 0
+}
+
+func (r *ReplicaChecker) fixMakeUpReplica(region *core.RegionInfo) *operator.Operator {
 	log.Debug("region has fewer than max replicas", zap.Uint64("region-id", region.GetID()), zap.Int("peers", len(region.GetPeers())))
 	regionStores := r.cluster.GetRegionStores(region)
 	target := r.strategy(region).SelectStoreToAdd(regionStores)

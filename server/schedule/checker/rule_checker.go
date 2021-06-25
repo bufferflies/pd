@@ -37,17 +37,19 @@ type RuleChecker struct {
 	ruleManager       *placement.RuleManager
 	name              string
 	regionWaitingList cache.Cache
+	priorityQueue     *cache.PriorityQueue
 	record            *recorder
 }
 
 // NewRuleChecker creates a checker instance.
-func NewRuleChecker(cluster opt.Cluster, ruleManager *placement.RuleManager, regionWaitingList cache.Cache) *RuleChecker {
+func NewRuleChecker(cluster opt.Cluster, ruleManager *placement.RuleManager, regionWaitingList cache.Cache, priorityQueue *cache.PriorityQueue) *RuleChecker {
 	return &RuleChecker{
 		cluster:           cluster,
 		ruleManager:       ruleManager,
 		name:              "rule-checker",
 		regionWaitingList: regionWaitingList,
 		record:            newRecord(),
+		priorityQueue:     priorityQueue,
 	}
 }
 
@@ -101,21 +103,38 @@ func (c *RuleChecker) fixRange(region *core.RegionInfo) *operator.Operator {
 	return op
 }
 
-func (c *RuleChecker) fixRulePeer(region *core.RegionInfo, fit *placement.RegionFit, rf *placement.RuleFit) (*operator.Operator, error) {
+func (c *RuleChecker) fixRulePeer(region *core.RegionInfo, fit *placement.RegionFit, rf *placement.RuleFit) (op *operator.Operator, err error) {
+	downCount, offlineCount, makeUpCount := 0, 0, 0
 	// make up peers.
 	if len(rf.Peers) < rf.Rule.Count {
-		return c.addRulePeer(region, rf)
+		op, err = c.addRulePeer(region, rf)
+		makeUpCount = rf.Rule.Count - len(rf.Peers)
 	}
 	// fix down/offline peers.
 	for _, peer := range rf.Peers {
 		if c.isDownPeer(region, peer) {
-			checkerCounter.WithLabelValues("rule_checker", "replace-down").Inc()
-			return c.replaceUnexpectRulePeer(region, rf, fit, peer, downStatus)
+			if op == nil {
+				checkerCounter.WithLabelValues("rule_checker", "replace-down").Inc()
+				op, err = c.replaceUnexpectRulePeer(region, rf, fit, peer, downStatus)
+			}
+			downCount = downCount + 1
 		}
 		if c.isOfflinePeer(peer) {
-			checkerCounter.WithLabelValues("rule_checker", "replace-offline").Inc()
-			return c.replaceUnexpectRulePeer(region, rf, fit, peer, offlineStatus)
+			if op == nil {
+				checkerCounter.WithLabelValues("rule_checker", "replace-offline").Inc()
+				op, err = c.replaceUnexpectRulePeer(region, rf, fit, peer, offlineStatus)
+			}
+			offlineCount = offlineCount + 1
 		}
+	}
+	// filter learner and
+	majority := len(rf.Peers)/2 + 1
+	if rf.Rule.Role != placement.Voter && downCount >= majority {
+		return nil, err
+	}
+	pushPriorityQueue(rf.Rule.Count, offlineCount, downCount, makeUpCount, region.GetID(), c.priorityQueue)
+	if op != nil {
+		return
 	}
 	// fix loose matched peers.
 	for _, peer := range rf.PeersWithDifferentRole {

@@ -44,6 +44,7 @@ const (
 	collectTimeout            = 5 * time.Minute
 	maxScheduleRetries        = 10
 	maxLoadConfigRetries      = 10
+	maxRegionRetry            = 10
 
 	patrolScanRegionLimit = 128 // It takes about 14 minutes to iterate 1 million regions.
 	// PluginLoad means action for load plugin
@@ -107,8 +108,9 @@ func (c *coordinator) patrolRegions() {
 			log.Info("patrol regions has been stopped")
 			return
 		}
-
-		// Check suspect regions first.
+		//  Check priority regions first.
+		c.checkPriorityRegions()
+		// Check suspect regions second.
 		c.checkSuspectRegions()
 		// Check suspect key ranges
 		c.checkSuspectKeyRanges()
@@ -152,6 +154,44 @@ func (c *coordinator) patrolRegions() {
 		failpoint.Inject("break-patrol", func() {
 			failpoint.Break()
 		})
+	}
+}
+
+// checkPriorityRegions
+func (c *coordinator) checkPriorityRegions() {
+	removes := make([]uint64, 0)
+	priorityPeers := c.checkers.GetPriorityRegions()
+	regionListGauge.WithLabelValues("priority").Set(float64(len(priorityPeers)))
+	log.Debug("check miss regions", zap.Int("miss region count", len(priorityPeers)))
+	for _, entry := range priorityPeers {
+		id, ok := entry.Value.(uint64)
+		if !ok {
+			continue
+		}
+		region := c.cluster.GetRegion(id)
+		if region == nil || entry.Retry > maxRegionRetry {
+			removes = append(removes, id)
+			continue
+		}
+		// avoid to some region run first leading to other region do not execute
+		// skip if time not after now-10*retry*patrol_interval
+		if t := entry.Last.Add(time.Duration(entry.Retry*10) * c.cluster.opt.GetPatrolRegionInterval()); t.After(time.Now()) {
+			continue
+		}
+		ops := c.checkers.CheckRegion(region)
+		if len(ops) == 0 {
+			continue
+		}
+		if !c.opController.ExceedStoreLimit(ops...) {
+			c.opController.AddWaitingOperator(ops...)
+			// it will remove region if region needs to merge
+			if ops[0].Kind()&operator.OpMerge != 0 {
+				removes = append(removes, id)
+			}
+		}
+	}
+	for _, v := range removes {
+		c.checkers.RemoveWaitingRegion(v)
 	}
 }
 
@@ -207,7 +247,7 @@ func (c *coordinator) checkSuspectKeyRanges() {
 
 func (c *coordinator) checkWaitingRegions() {
 	items := c.checkers.GetWaitingRegions()
-	regionWaitingListGauge.Set(float64(len(items)))
+	regionListGauge.WithLabelValues("waiting_list").Set(float64(len(items)))
 	for _, item := range items {
 		id := item.Key
 		region := c.cluster.GetRegion(id)
