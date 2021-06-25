@@ -88,6 +88,7 @@ func (r *ReplicaChecker) Check(region *core.RegionInfo) (op *operator.Operator) 
 	majority := len(region.GetPeers())/2 + 1
 	// region member up must bigger than majority
 	if downCount >= majority {
+		r.priorityQueue.Remove(region.GetID())
 		return nil
 	}
 	pushPriorityQueue(r.opts.GetMaxReplicas(), offlineCount, downCount, makeUpCount, region.GetID(), r.priorityQueue)

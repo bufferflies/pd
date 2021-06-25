@@ -130,6 +130,7 @@ func (c *RuleChecker) fixRulePeer(region *core.RegionInfo, fit *placement.Region
 	// filter learner and
 	majority := len(rf.Peers)/2 + 1
 	if rf.Rule.Role != placement.Voter && downCount >= majority {
+		c.priorityQueue.Remove(region.GetID())
 		return nil, err
 	}
 	pushPriorityQueue(rf.Rule.Count, offlineCount, downCount, makeUpCount, region.GetID(), c.priorityQueue)
