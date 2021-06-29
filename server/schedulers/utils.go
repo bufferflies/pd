@@ -100,7 +100,6 @@ func (p *balancePlan) shouldBalance(scheduleName string) bool {
 	if targetInfluence < 0 {
 		targetInfluence = -targetInfluence
 	}
-	//sourceDelta, targetDelta := sourceInfluence-tolerantResource, targetInfluence+tolerantResource
 	opts := p.cluster.GetOpts()
 	switch p.kind.Resource {
 	case core.LeaderKind:
