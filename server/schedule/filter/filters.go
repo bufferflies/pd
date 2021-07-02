@@ -794,22 +794,22 @@ func NewRegionScoreFilter(scope string, source *core.StoreInfo, opt *config.Pers
 	}
 }
 
-// Scope scope only for balance region
+// Scope scopes only for balance region
 func (f *RegionScoreFilter) Scope() string {
 	return f.scope
 }
 
-// Type type region score filter
+// Type types region score filter
 func (f *RegionScoreFilter) Type() string {
 	return "region-score-filter"
 }
 
-// Source it ignore source
+// Source ignore source
 func (f *RegionScoreFilter) Source(opt *config.PersistOptions, _ *core.StoreInfo) bool {
 	return true
 }
 
-// Target target's score less than source's score
+// Target return true if target's score less than source's score
 func (f *RegionScoreFilter) Target(opt *config.PersistOptions, store *core.StoreInfo) bool {
 	score := store.RegionScore(opt.GetRegionScoreFormulaVersion(), opt.GetHighSpaceRatio(), opt.GetLowSpaceRatio(), 0)
 	return score < f.score
