@@ -54,10 +54,11 @@ type Cluster struct {
 
 // NewCluster creates a new Cluster
 func NewCluster(ctx context.Context, opts *config.PersistOptions) *Cluster {
+	mockQuit := make(chan struct{})
 	clus := &Cluster{
 		BasicCluster:     core.NewBasicCluster(),
 		IDAllocator:      mockid.NewIDAllocator(),
-		HotStat:          statistics.NewHotStat(ctx),
+		HotStat:          statistics.NewHotStat(ctx, mockQuit),
 		PersistOptions:   opts,
 		suspectRegions:   map[uint64]struct{}{},
 		disabledFeatures: make(map[versioninfo.Feature]struct{}),
@@ -529,11 +530,11 @@ func (mc *Cluster) UpdateStorageWrittenStats(storeID, bytesWritten, keysWritten 
 }
 
 // UpdateStorageReadStats updates store written bytes.
-func (mc *Cluster) UpdateStorageReadStats(storeID, bytesWritten, keysWritten uint64) {
+func (mc *Cluster) UpdateStorageReadStats(storeID, bytesRead, keysRead uint64) {
 	store := mc.GetStore(storeID)
 	newStats := proto.Clone(store.GetStoreStats()).(*pdpb.StoreStats)
-	newStats.BytesRead = bytesWritten
-	newStats.KeysRead = keysWritten
+	newStats.BytesRead = bytesRead
+	newStats.KeysRead = keysRead
 	now := time.Now().Second()
 	interval := &pdpb.TimeInterval{StartTimestamp: uint64(now - statistics.StoreHeartBeatReportInterval), EndTimestamp: uint64(now)}
 	newStats.Interval = interval
@@ -755,12 +756,7 @@ func (mc *Cluster) CheckRegionRead(region *core.RegionInfo) []*statistics.HotPee
 	reportInterval := region.GetInterval()
 	interval := reportInterval.GetEndTimestamp() - reportInterval.GetStartTimestamp()
 	for _, peer := range region.GetPeers() {
-		peerInfo := core.NewPeerInfo(peer,
-			region.GetBytesWritten(),
-			region.GetKeysWritten(),
-			region.GetBytesRead(),
-			region.GetKeysRead(),
-			interval)
+		peerInfo := core.NewPeerInfo(peer, region.GetLoads(), interval)
 		item := mc.HotCache.CheckReadPeerSync(peerInfo, region)
 		if item != nil {
 			items = append(items, item)
@@ -777,12 +773,7 @@ func (mc *Cluster) CheckRegionWrite(region *core.RegionInfo) []*statistics.HotPe
 	reportInterval := region.GetInterval()
 	interval := reportInterval.GetEndTimestamp() - reportInterval.GetStartTimestamp()
 	for _, peer := range region.GetPeers() {
-		peerInfo := core.NewPeerInfo(peer,
-			region.GetBytesWritten(),
-			region.GetKeysWritten(),
-			region.GetBytesRead(),
-			region.GetKeysRead(),
-			interval)
+		peerInfo := core.NewPeerInfo(peer, region.GetLoads(), interval)
 		item := mc.HotCache.CheckWritePeerSync(peerInfo, region)
 		if item != nil {
 			items = append(items, item)
@@ -799,12 +790,7 @@ func (mc *Cluster) CheckRegionLeaderRead(region *core.RegionInfo) []*statistics.
 	reportInterval := region.GetInterval()
 	interval := reportInterval.GetEndTimestamp() - reportInterval.GetStartTimestamp()
 	peer := region.GetLeader()
-	peerInfo := core.NewPeerInfo(peer,
-		region.GetBytesWritten(),
-		region.GetKeysWritten(),
-		region.GetBytesRead(),
-		region.GetKeysRead(),
-		interval)
+	peerInfo := core.NewPeerInfo(peer, region.GetLoads(), interval)
 	item := mc.HotCache.CheckReadPeerSync(peerInfo, region)
 	if item != nil {
 		items = append(items, item)
