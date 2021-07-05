@@ -1,9 +1,19 @@
+// Copyright 2017 TiKV Project Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package cache
 
 import (
-	"fmt"
-	"time"
-
 	"github.com/tikv/pd/pkg/btree"
 )
 
@@ -12,7 +22,7 @@ const defaultDegree = 4
 
 // PriorityQueue queue has priority  and preempt
 type PriorityQueue struct {
-	items    map[interface{}]*Entry
+	items    map[uint64]*Entry
 	btree    *btree.BTree
 	capacity int
 }
@@ -20,45 +30,46 @@ type PriorityQueue struct {
 // NewPriorityQueue construct of priority queue
 func NewPriorityQueue(capacity int) *PriorityQueue {
 	return &PriorityQueue{
-		items:    make(map[interface{}]*Entry),
+		items:    make(map[uint64]*Entry),
 		btree:    btree.New(defaultDegree),
 		capacity: capacity,
 	}
 }
 
-// Put put value into queue
-func (pq *PriorityQueue) Put(priority int, value interface{}) bool {
-	entry, ok := pq.items[value]
+// PriorityQueueItem avoid convert cost
+type PriorityQueueItem interface {
+	ID() uint64
+}
+
+// Put put value with priority into queue
+func (pq *PriorityQueue) Put(priority int, value PriorityQueueItem) bool {
+	id := value.ID()
+	entry, ok := pq.items[id]
 	if !ok {
 		entry = &Entry{Priority: priority, Value: value}
 		if pq.Len() >= pq.capacity {
 			min := pq.btree.Min()
 			// avoid to capacity equal 0
-			if min == nil || entry.Less(min) {
+			if min == nil || !min.Less(entry) {
 				return false
 			}
-			pq.Remove(min.(*Entry).Value)
+			pq.Remove(min.(*Entry).Value.ID())
 		}
 	} else {
 		// delete before update
 		if entry.Priority != priority {
 			pq.btree.Delete(entry)
 			entry.Priority = priority
-			entry.Retry = 0
-		} else {
-			entry.Retry = entry.Retry + 1
 		}
 	}
-	entry.Last = time.Now()
 	pq.btree.ReplaceOrInsert(entry)
-	pq.items[value] = entry
+	pq.items[id] = entry
 	return true
 }
 
-// Get get value from queue
-func (pq *PriorityQueue) Get(value interface{}) *Entry {
-	return pq.items[value]
-
+// Get find entry by id from queue
+func (pq *PriorityQueue) Get(id uint64) *Entry {
+	return pq.items[id]
 }
 
 // Peek return the highest priority entry
@@ -90,12 +101,10 @@ func (pq *PriorityQueue) Elems() []*Entry {
 }
 
 // Remove remove value from queue
-func (pq *PriorityQueue) Remove(value interface{}) {
-	if v, ok := pq.items[value]; ok {
-		if i := pq.btree.Delete(v); i == nil {
-			fmt.Printf("error:%v \n", pq.items)
-		}
-		delete(pq.items, value)
+func (pq *PriorityQueue) Remove(id uint64) {
+	if v, ok := pq.items[id]; ok {
+		pq.btree.Delete(v)
+		delete(pq.items, id)
 	}
 }
 
@@ -104,12 +113,10 @@ func (pq *PriorityQueue) Len() int {
 	return pq.btree.Len()
 }
 
-// Entry a record in PriorityQueue
+// Entry a pair of region and it's priority
 type Entry struct {
 	Priority int
-	Value    interface{}
-	Last     time.Time
-	Retry    int
+	Value    PriorityQueueItem
 }
 
 // Less return true if the entry has smaller priority
