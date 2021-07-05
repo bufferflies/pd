@@ -15,6 +15,7 @@ package checker
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/tikv/pd/pkg/errs"
 
@@ -50,6 +51,19 @@ type ReplicaChecker struct {
 	opts              *config.PersistOptions
 	regionWaitingList cache.Cache
 	priorityQueue     *cache.PriorityQueue
+}
+
+type RegionEntry struct {
+	Retry    int
+	Last     time.Time
+	regionID uint64
+}
+
+func (r RegionEntry) ID() uint64 {
+	return r.regionID
+}
+func NewRegionEntry(regionID uint64) *RegionEntry {
+	return &RegionEntry{regionID: regionID}
 }
 
 // NewReplicaChecker creates a replica checker.
@@ -113,7 +127,15 @@ func pushPriorityQueue(replicas, offlineCount, downCount, makeUpCount int, regio
 	priority := tolerate - offlinePriorityWeight*offlineCount - downCount*downPriorityWeight - makeupPriorityWeight*makeUpCount
 	//  some region peers is wrong, need to fix
 	if priority != tolerate {
-		queue.Put(priority, regionID)
+		entry := queue.Get(regionID)
+		if entry.Priority == priority {
+			e := entry.Value.(*RegionEntry)
+			e.Retry++
+			e.Last = time.Now()
+		} else {
+			re := NewRegionEntry(regionID)
+			queue.Put(priority, re)
+		}
 	} else {
 		queue.Remove(regionID)
 	}

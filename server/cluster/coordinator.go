@@ -22,6 +22,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/tikv/pd/server/schedule/checker"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/log"
@@ -164,18 +166,15 @@ func (c *coordinator) checkPriorityRegions() {
 	regionListGauge.WithLabelValues("priority").Set(float64(len(priorityPeers)))
 	log.Debug("check miss regions", zap.Int("miss region count", len(priorityPeers)))
 	for _, entry := range priorityPeers {
-		id, ok := entry.Value.(uint64)
-		if !ok {
-			continue
-		}
-		region := c.cluster.GetRegion(id)
-		if region == nil || entry.Retry > maxRegionRetry {
-			removes = append(removes, id)
+		re := entry.Value.(*checker.RegionEntry)
+		region := c.cluster.GetRegion(re.ID())
+		if region == nil || re.Retry > maxRegionRetry {
+			removes = append(removes, re.ID())
 			continue
 		}
 		// avoid to some region run first leading to other region do not execute
 		// skip if time not after now-10*retry*patrol_interval
-		if t := entry.Last.Add(time.Duration(entry.Retry*10) * c.cluster.opt.GetPatrolRegionInterval()); t.After(time.Now()) {
+		if t := re.Last.Add(time.Duration(re.Retry*10) * c.cluster.opt.GetPatrolRegionInterval()); t.After(time.Now()) {
 			continue
 		}
 		ops := c.checkers.CheckRegion(region)
@@ -186,7 +185,7 @@ func (c *coordinator) checkPriorityRegions() {
 			c.opController.AddWaitingOperator(ops...)
 			// it will remove region if region needs to merge
 			if ops[0].Kind()&operator.OpMerge != 0 {
-				removes = append(removes, id)
+				removes = append(removes, re.ID())
 			}
 		}
 	}
