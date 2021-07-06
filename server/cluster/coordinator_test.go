@@ -488,6 +488,7 @@ func checkPriorityRegionsTest(tc *testCluster, co *coordinator, c *C) {
 	co.patrolRegions()
 	c.Assert(tc.addLeaderRegion(3, 2, 3, 4), IsNil)
 	co.wg.Add(1)
+	time.Sleep(tc.opt.GetPatrolRegionInterval() * 11)
 	co.patrolRegions()
 	c.Assert(co.checkers.GetPriorityQueueSize(), Equals, 0)
 
