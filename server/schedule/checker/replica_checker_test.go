@@ -210,7 +210,7 @@ func (s *testReplicaCheckerSuite) TestBasic(c *C) {
 	tc := mockcluster.NewCluster(s.ctx, opt)
 	tc.SetMaxSnapshotCount(2)
 	tc.DisableFeature(versioninfo.JointConsensus)
-	rc := NewReplicaChecker(tc, cache.NewDefaultCache(10), cache.NewPriorityQueue(10))
+	rc := NewReplicaChecker(tc, cache.NewDefaultCache(10), cache.NewPriorityQueue(0))
 
 	// Add stores 1,2,3,4.
 	tc.AddRegionStore(1, 4)

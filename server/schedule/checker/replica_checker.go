@@ -33,16 +33,18 @@ const (
 )
 
 const (
-	offlineStatus         = "offline"
-	downStatus            = "down"
+	offlineStatus = "offline"
+	downStatus    = "down"
+
 	downPriorityWeight    = 10
 	makeupPriorityWeight  = 10
 	offlinePriorityWeight = 1
-	maxRetry              = 10
+
+	maxRetry = 10
 )
 
 // ReplicaChecker ensures region has the best replicas.
-// Including the following:
+// Including the following:coordinator
 // Replica number management.
 // Unhealthy replica management, mainly used for disaster recovery of TiKV.
 // Location management, mainly used for cross data center deployment.

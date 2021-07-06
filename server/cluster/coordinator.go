@@ -44,7 +44,6 @@ const (
 	collectTimeout            = 5 * time.Minute
 	maxScheduleRetries        = 10
 	maxLoadConfigRetries      = 10
-	maxRegionRetry            = 10
 
 	patrolScanRegionLimit = 128 // It takes about 14 minutes to iterate 1 million regions.
 	// PluginLoad means action for load plugin
@@ -169,15 +168,13 @@ func (c *coordinator) checkPriorityRegions() {
 			removes = append(removes, region.GetID())
 			continue
 		}
-		// avoid to some region run first leading to other region do not execute
-		// skip if time not after now-10*retry*patrol_interval
 		ops := c.checkers.CheckRegion(region)
 		if len(ops) == 0 {
 			continue
 		}
 		if !c.opController.ExceedStoreLimit(ops...) {
 			c.opController.AddWaitingOperator(ops...)
-			// it will remove region if region needs to merge
+			// it should skip if region needs to merge
 			if ops[0].Kind()&operator.OpMerge != 0 {
 				removes = append(removes, region.GetID())
 			}
