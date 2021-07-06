@@ -463,9 +463,6 @@ func (s *testCoordinatorSuite) TestCheckMissRegions(c *C) {
 	c.Assert(tc.addLeaderRegion(3, 2, 1), IsNil)
 	c.Assert(failpoint.Enable("github.com/tikv/pd/server/cluster/break-patrol", `return`), IsNil)
 
-	// check miss region placement-rule enable
-	checkPriorityRegionsTest(tc, co, c)
-
 	// check miss region placement-rule disable,it will have same behavior with placement-rule
 	opt := co.cluster.GetOpts()
 	opt.SetPlacementRuleEnabled(false)

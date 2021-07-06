@@ -166,7 +166,7 @@ func (c *coordinator) checkPriorityRegions() {
 	regionListGauge.WithLabelValues("priority").Set(float64(len(priorityPeers)))
 	log.Debug("check miss regions", zap.Int("miss region count", len(priorityPeers)))
 	for _, entry := range priorityPeers {
-		re := entry.Value.(*checker.RegionEntry)
+		re := entry.Value.(*checker.RegionPriorityEntry)
 		region := c.cluster.GetRegion(re.ID())
 		if region == nil || re.Retry > maxRegionRetry {
 			removes = append(removes, re.ID())

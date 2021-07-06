@@ -17,11 +17,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tikv/pd/pkg/errs"
-
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/cache"
+	"github.com/tikv/pd/pkg/errs"
 	"github.com/tikv/pd/server/config"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule/operator"
@@ -37,8 +36,8 @@ const (
 	offlineStatus         = "offline"
 	downStatus            = "down"
 	downPriorityWeight    = 10
-	offlinePriorityWeight = 1
 	makeupPriorityWeight  = 10
+	offlinePriorityWeight = 1
 )
 
 // ReplicaChecker ensures region has the best replicas.
@@ -53,17 +52,21 @@ type ReplicaChecker struct {
 	priorityQueue     *cache.PriorityQueue
 }
 
-type RegionEntry struct {
+// RegionPriorityEntry record region priority info
+type RegionPriorityEntry struct {
 	Retry    int
 	Last     time.Time
 	regionID uint64
 }
 
-func (r RegionEntry) ID() uint64 {
+// ID implement PriorityQueueItem interface
+func (r RegionPriorityEntry) ID() uint64 {
 	return r.regionID
 }
-func NewRegionEntry(regionID uint64) *RegionEntry {
-	return &RegionEntry{regionID: regionID}
+
+// NewRegionEntry construct of region priority entry
+func NewRegionEntry(regionID uint64) *RegionPriorityEntry {
+	return &RegionPriorityEntry{regionID: regionID}
 }
 
 // NewReplicaChecker creates a replica checker.
@@ -129,7 +132,7 @@ func pushPriorityQueue(replicas, offlineCount, downCount, makeUpCount int, regio
 	if priority != tolerate {
 		entry := queue.Get(regionID)
 		if entry.Priority == priority {
-			e := entry.Value.(*RegionEntry)
+			e := entry.Value.(*RegionPriorityEntry)
 			e.Retry++
 			e.Last = time.Now()
 		} else {
