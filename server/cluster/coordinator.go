@@ -22,8 +22,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/tikv/pd/server/schedule/checker"
-
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/log"
@@ -33,6 +31,7 @@ import (
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/kv"
 	"github.com/tikv/pd/server/schedule"
+	"github.com/tikv/pd/server/schedule/checker"
 	"github.com/tikv/pd/server/schedule/hbstream"
 	"github.com/tikv/pd/server/schedule/operator"
 	"github.com/tikv/pd/server/schedulers"
