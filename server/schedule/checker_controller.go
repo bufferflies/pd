@@ -133,6 +133,7 @@ func (c *CheckerController) GetPriorityRegions() []*cache.Entry {
 	return c.priorityQueue.Elems()
 }
 
+// GetPriorityQueueSize returns the size of priority queue
 func (c *CheckerController) GetPriorityQueueSize() int {
 	return c.priorityQueue.Len()
 }
