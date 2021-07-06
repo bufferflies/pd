@@ -37,7 +37,6 @@ type RuleChecker struct {
 	ruleManager       *placement.RuleManager
 	name              string
 	regionWaitingList cache.Cache
-	priorityQueue     *cache.PriorityQueue
 	record            *recorder
 }
 
@@ -102,7 +101,7 @@ func (c *RuleChecker) fixRange(region *core.RegionInfo) *operator.Operator {
 	return op
 }
 
-func (c *RuleChecker) fixRulePeer(region *core.RegionInfo, fit *placement.RegionFit, rf *placement.RuleFit) (op *operator.Operator, err error) {
+func (c *RuleChecker) fixRulePeer(region *core.RegionInfo, fit *placement.RegionFit, rf *placement.RuleFit) (*operator.Operator, error) {
 	// make up peers.
 	if len(rf.Peers) < rf.Rule.Count {
 		return c.addRulePeer(region, rf)
