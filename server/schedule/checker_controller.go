@@ -56,7 +56,7 @@ func NewCheckerController(ctx context.Context, cluster opt.Cluster, ruleManager 
 		opController:      opController,
 		learnerChecker:    checker.NewLearnerChecker(cluster),
 		replicaChecker:    checker.NewReplicaChecker(cluster, regionWaitingList, priorityQueue),
-		ruleChecker:       checker.NewRuleChecker(cluster, ruleManager, regionWaitingList, priorityQueue),
+		ruleChecker:       checker.NewRuleChecker(cluster, ruleManager, regionWaitingList),
 		mergeChecker:      checker.NewMergeChecker(ctx, cluster),
 		jointStateChecker: checker.NewJointStateChecker(cluster),
 		regionWaitingList: regionWaitingList,
