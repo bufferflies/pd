@@ -38,6 +38,7 @@ const (
 	downPriorityWeight    = 10
 	makeupPriorityWeight  = 10
 	offlinePriorityWeight = 1
+	maxRetry              = 10
 )
 
 // ReplicaChecker ensures region has the best replicas.
@@ -86,6 +87,13 @@ func (r *ReplicaChecker) GetType() string {
 
 // Check verifies a region's replicas, creating an operator.Operator if need.
 func (r *ReplicaChecker) Check(region *core.RegionInfo) (op *operator.Operator) {
+	entry := r.priorityQueue.Get(region.GetID())
+	if entry != nil {
+		re := entry.Value.(*RegionPriorityEntry)
+		if t := re.Last.Add(time.Duration(re.Retry*10) * r.opts.GetPatrolRegionInterval()); t.After(time.Now()) {
+			return
+		}
+	}
 	checkerCounter.WithLabelValues("replica_checker", "check").Inc()
 	downCount, offlineCount, makeUpCount := 0, 0, 0
 	sID := uint64(0)
@@ -130,11 +138,15 @@ func pushPriorityQueue(replicas, offlineCount, downCount, makeUpCount int, regio
 	priority := tolerate - offlinePriorityWeight*offlineCount - downCount*downPriorityWeight - makeupPriorityWeight*makeUpCount
 	//  some region peers is wrong, need to fix
 	if priority != tolerate {
-		entry := queue.Get(regionID)
-		if entry.Priority == priority {
+		// update region info in queue
+		if entry := queue.Get(regionID); entry != nil && entry.Priority == priority {
 			e := entry.Value.(*RegionPriorityEntry)
 			e.Retry++
 			e.Last = time.Now()
+			if e.Retry >= maxRetry {
+				queue.Remove(regionID)
+				return
+			}
 		} else {
 			re := NewRegionEntry(regionID)
 			queue.Put(priority, re)

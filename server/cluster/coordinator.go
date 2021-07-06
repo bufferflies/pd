@@ -31,7 +31,6 @@ import (
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/kv"
 	"github.com/tikv/pd/server/schedule"
-	"github.com/tikv/pd/server/schedule/checker"
 	"github.com/tikv/pd/server/schedule/hbstream"
 	"github.com/tikv/pd/server/schedule/operator"
 	"github.com/tikv/pd/server/schedulers"
@@ -165,17 +164,13 @@ func (c *coordinator) checkPriorityRegions() {
 	regionListGauge.WithLabelValues("priority").Set(float64(len(priorityPeers)))
 	log.Debug("check miss regions", zap.Int("miss region count", len(priorityPeers)))
 	for _, entry := range priorityPeers {
-		re := entry.Value.(*checker.RegionPriorityEntry)
-		region := c.cluster.GetRegion(re.ID())
-		if region == nil || re.Retry > maxRegionRetry {
-			removes = append(removes, re.ID())
+		region := c.cluster.GetRegion(entry.Value.ID())
+		if region == nil {
+			removes = append(removes, region.GetID())
 			continue
 		}
 		// avoid to some region run first leading to other region do not execute
 		// skip if time not after now-10*retry*patrol_interval
-		if t := re.Last.Add(time.Duration(re.Retry*10) * c.cluster.opt.GetPatrolRegionInterval()); t.After(time.Now()) {
-			continue
-		}
 		ops := c.checkers.CheckRegion(region)
 		if len(ops) == 0 {
 			continue
@@ -184,7 +179,7 @@ func (c *coordinator) checkPriorityRegions() {
 			c.opController.AddWaitingOperator(ops...)
 			// it will remove region if region needs to merge
 			if ops[0].Kind()&operator.OpMerge != 0 {
-				removes = append(removes, re.ID())
+				removes = append(removes, region.GetID())
 			}
 		}
 	}
