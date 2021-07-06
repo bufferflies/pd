@@ -456,11 +456,12 @@ func (s *testCoordinatorSuite) TestCheckMissRegions(c *C) {
 	c.Assert(tc.addRegionStore(1, 0), IsNil)
 	c.Assert(tc.addRegionStore(2, 0), IsNil)
 	c.Assert(tc.addRegionStore(3, 0), IsNil)
+	c.Assert(tc.addRegionStore(4, 0), IsNil)
 
 	// Add a peer with three replicas.
-	c.Assert(tc.addLeaderRegion(1, 2), IsNil)
-	c.Assert(tc.addLeaderRegion(2, 2, 3, 1), IsNil)
-	c.Assert(tc.addLeaderRegion(3, 2, 1), IsNil)
+	c.Assert(tc.addLeaderRegion(1, 2, 1, 3), IsNil)
+	c.Assert(tc.addLeaderRegion(2, 2, 3, 4), IsNil)
+	c.Assert(tc.addLeaderRegion(3, 2, 4), IsNil)
 	c.Assert(failpoint.Enable("github.com/tikv/pd/server/cluster/break-patrol", `return`), IsNil)
 
 	// check miss region placement-rule disable,it will have same behavior with placement-rule
@@ -475,33 +476,40 @@ func (s *testCoordinatorSuite) TestCheckMissRegions(c *C) {
 }
 
 func checkPriorityRegionsTest(tc *testCluster, co *coordinator, c *C) {
-	// case 1:  region-3 will enter miss peer queue
+	// case 1:  region-3 and region-1 will enter miss peer queue
 	co.wg.Add(1)
 	oc := co.opController
 	co.patrolRegions()
 	c.Assert(len(oc.GetOperators()), Equals, 0)
-	c.Assert(co.checkers.GetPriorityQueueSize(), Equals, 2)
+	c.Assert(co.checkers.GetPriorityQueueSize(), Equals, 1)
 
-	//case 2: region-3 add one replicate
-	c.Assert(tc.addLeaderRegion(3, 2, 3, 1), IsNil)
+	//case 2: it will retry+1, add region ok will not remove
+	co.wg.Add(1)
+	co.patrolRegions()
+	c.Assert(tc.addLeaderRegion(3, 2, 3, 4), IsNil)
 	co.wg.Add(1)
 	co.patrolRegions()
 	c.Assert(co.checkers.GetPriorityQueueSize(), Equals, 0)
 
-	//case 3: store-1 is tombstone, so region-3 has only one replicas,it will be added to miss regions
+	// case 3: sleep tc.opt.GetPatrolRegionInterval() * 11 to schedule next time
+	co.wg.Add(1)
+	time.Sleep(tc.opt.GetPatrolRegionInterval() * 11)
+	co.patrolRegions()
+	c.Assert(co.checkers.GetPriorityQueueSize(), Equals, 0)
+
+	//case 4: store-1 is tombstone, so region-1 has only two replicas
 	c.Assert(co.cluster.RemoveStore(1, false), IsNil)
 	c.Assert(co.cluster.buryStore(1), IsNil)
 	c.Assert(co.cluster.GetStore(1).IsUp(), Equals, false)
 	co.wg.Add(1)
 	co.patrolRegions()
-	c.Assert(co.checkers.GetPriorityQueueSize(), Equals, 2)
+	c.Assert(co.checkers.GetPriorityQueueSize(), Equals, 1)
 
-	// recovery add store-1, region-1 has one peer, remove miss region
+	// recovery store-1, region-1 has three region
 	c.Assert(tc.addRegionStore(1, 0), IsNil)
-	c.Assert(tc.addLeaderRegion(3, 2, 1), IsNil)
-	c.Assert(tc.addLeaderRegion(2, 2, 3, 1), IsNil)
-	co.checkers.RemovePriorityRegion(uint64(3))
-	co.checkers.RemovePriorityRegion(uint64(2))
+	c.Assert(tc.addLeaderRegion(1, 2, 1, 3), IsNil)
+	co.wg.Add(1)
+	co.patrolRegions()
 	c.Assert(co.checkers.GetPriorityQueueSize(), Equals, 0)
 }
 

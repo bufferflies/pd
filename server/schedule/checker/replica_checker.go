@@ -69,7 +69,7 @@ func (r RegionPriorityEntry) ID() uint64 {
 
 // NewRegionEntry construct of region priority entry
 func NewRegionEntry(regionID uint64) *RegionPriorityEntry {
-	return &RegionPriorityEntry{regionID: regionID}
+	return &RegionPriorityEntry{regionID: regionID, Last: time.Now()}
 }
 
 // NewReplicaChecker creates a replica checker.
@@ -92,6 +92,7 @@ func (r *ReplicaChecker) Check(region *core.RegionInfo) (op *operator.Operator) 
 	entry := r.priorityQueue.Get(region.GetID())
 	if entry != nil {
 		re := entry.Value.(*RegionPriorityEntry)
+		// it will run after retry*patrol to avoid occupy cpu resources
 		if t := re.Last.Add(time.Duration(re.Retry*10) * r.opts.GetPatrolRegionInterval()); t.After(time.Now()) {
 			return
 		}
