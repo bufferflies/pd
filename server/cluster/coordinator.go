@@ -190,7 +190,7 @@ func (c *coordinator) checkPriorityRegions() {
 		}
 	}
 	for _, v := range removes {
-		c.checkers.RemoveWaitingRegion(v)
+		c.checkers.RemovePriorityRegion(v)
 	}
 }
 
