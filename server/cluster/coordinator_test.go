@@ -480,7 +480,7 @@ func checkPriorityRegionsTest(tc *testCluster, co *coordinator, c *C) {
 	oc := co.opController
 	co.patrolRegions()
 	c.Assert(len(oc.GetOperators()), Equals, 0)
-	c.Assert(co.checkers.GetPriorityQueueSize(), Equals, 1)
+	c.Assert(co.checkers.GetPriorityQueueSize(), Equals, 2)
 
 	//case 2: region-3 add one replicate
 	c.Assert(tc.addLeaderRegion(3, 2, 3, 1), IsNil)
