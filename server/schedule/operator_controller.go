@@ -781,21 +781,15 @@ func (oc *OperatorController) updateCounts(operators map[uint64]*operator.Operat
 		delete(oc.counts, k)
 	}
 	for _, op := range operators {
-		oc.counts[op.Kind()]++
+		oc.counts[op.SchedulerKind()]++
 	}
 }
 
 // OperatorCount gets the count of operators filtered by mask.
-func (oc *OperatorController) OperatorCount(mask operator.OpKind) uint64 {
+func (oc *OperatorController) OperatorCount(kind operator.OpKind) uint64 {
 	oc.RLock()
 	defer oc.RUnlock()
-	var total uint64
-	for k, count := range oc.counts {
-		if k&mask != 0 {
-			total += count
-		}
-	}
-	return total
+	return oc.counts[kind]
 }
 
 // GetOpInfluence gets OpInfluence.
@@ -816,7 +810,7 @@ func (oc *OperatorController) GetOpInfluence(cluster opt.Cluster) operator.OpInf
 	return influence
 }
 
-// GetFastOpInfluence get fast finish influence and remove more than 10s operator
+// GetFastOpInfluence get fast finish operator influence
 func (oc *OperatorController) GetFastOpInfluence(cluster opt.Cluster, influence operator.OpInfluence) {
 	for _, id := range oc.fastOperators.GetAllID() {
 		value, ok := oc.fastOperators.Get(id)
