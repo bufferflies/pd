@@ -35,16 +35,22 @@ func Test(t *testing.T) {
 
 var _ = Suite(&schedulerTestSuite{})
 
-type schedulerTestSuite struct{}
+type schedulerTestSuite struct {
+	context context.Context
+	cancel  context.CancelFunc
+}
 
 func (s *schedulerTestSuite) SetUpSuite(c *C) {
 	server.EnableZap = true
+	s.context, s.cancel = context.WithCancel(context.Background())
+}
+
+func (s *schedulerTestSuite) TearDownSuite(c *C) {
+	s.cancel()
 }
 
 func (s *schedulerTestSuite) TestScheduler(c *C) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	cluster, err := tests.NewTestCluster(ctx, 1)
+	cluster, err := tests.NewTestCluster(s.context, 1)
 	c.Assert(err, IsNil)
 	err = cluster.RunInitialServers()
 	c.Assert(err, IsNil)
@@ -121,7 +127,6 @@ func (s *schedulerTestSuite) TestScheduler(c *C) {
 		"balance-region-scheduler":     true,
 		"balance-leader-scheduler":     true,
 		"balance-hot-region-scheduler": true,
-		"label-scheduler":              true,
 	}
 	checkSchedulerCommand(nil, expected)
 
@@ -130,7 +135,6 @@ func (s *schedulerTestSuite) TestScheduler(c *C) {
 	expected = map[string]bool{
 		"balance-leader-scheduler":     true,
 		"balance-hot-region-scheduler": true,
-		"label-scheduler":              true,
 	}
 	checkSchedulerCommand(args, expected)
 
@@ -142,7 +146,6 @@ func (s *schedulerTestSuite) TestScheduler(c *C) {
 		expected = map[string]bool{
 			"balance-leader-scheduler":     true,
 			"balance-hot-region-scheduler": true,
-			"label-scheduler":              true,
 			schedulers[idx]:                true,
 		}
 		checkSchedulerCommand(args, expected)
@@ -157,7 +160,6 @@ func (s *schedulerTestSuite) TestScheduler(c *C) {
 		expected = map[string]bool{
 			"balance-leader-scheduler":     true,
 			"balance-hot-region-scheduler": true,
-			"label-scheduler":              true,
 			schedulers[idx]:                true,
 		}
 		checkSchedulerCommand(args, expected)
@@ -171,7 +173,6 @@ func (s *schedulerTestSuite) TestScheduler(c *C) {
 		expected = map[string]bool{
 			"balance-leader-scheduler":     true,
 			"balance-hot-region-scheduler": true,
-			"label-scheduler":              true,
 		}
 		checkSchedulerCommand(args, expected)
 
@@ -181,7 +182,6 @@ func (s *schedulerTestSuite) TestScheduler(c *C) {
 		expected = map[string]bool{
 			"balance-leader-scheduler":     true,
 			"balance-hot-region-scheduler": true,
-			"label-scheduler":              true,
 			schedulers[idx]:                true,
 		}
 		checkSchedulerCommand(args, expected)
@@ -191,7 +191,6 @@ func (s *schedulerTestSuite) TestScheduler(c *C) {
 		expected = map[string]bool{
 			"balance-leader-scheduler":     true,
 			"balance-hot-region-scheduler": true,
-			"label-scheduler":              true,
 			schedulers[idx]:                true,
 		}
 		checkSchedulerCommand(args, expected)
@@ -205,7 +204,6 @@ func (s *schedulerTestSuite) TestScheduler(c *C) {
 		expected = map[string]bool{
 			"balance-leader-scheduler":     true,
 			"balance-hot-region-scheduler": true,
-			"label-scheduler":              true,
 			schedulers[idx]:                true,
 		}
 		checkSchedulerCommand(args, expected)
@@ -219,7 +217,6 @@ func (s *schedulerTestSuite) TestScheduler(c *C) {
 		expected = map[string]bool{
 			"balance-leader-scheduler":     true,
 			"balance-hot-region-scheduler": true,
-			"label-scheduler":              true,
 		}
 		checkSchedulerCommand(args, expected)
 
@@ -229,7 +226,6 @@ func (s *schedulerTestSuite) TestScheduler(c *C) {
 	checkSchedulerCommand([]string{"-u", pdAddr, "scheduler", "add", "shuffle-region-scheduler"}, map[string]bool{
 		"balance-leader-scheduler":     true,
 		"balance-hot-region-scheduler": true,
-		"label-scheduler":              true,
 		"shuffle-region-scheduler":     true,
 	})
 	var roles []string
@@ -261,17 +257,18 @@ func (s *schedulerTestSuite) TestScheduler(c *C) {
 	var conf map[string]interface{}
 	mustExec([]string{"-u", pdAddr, "scheduler", "config", "balance-hot-region-scheduler", "list"}, &conf)
 	expected1 := map[string]interface{}{
-		"min-hot-byte-rate":         float64(100),
-		"min-hot-key-rate":          float64(10),
-		"max-zombie-rounds":         float64(3),
-		"max-peer-number":           float64(1000),
-		"byte-rate-rank-step-ratio": 0.05,
-		"key-rate-rank-step-ratio":  0.05,
-		"count-rank-step-ratio":     0.01,
-		"great-dec-ratio":           0.95,
-		"minor-dec-ratio":           0.99,
-		"src-tolerance-ratio":       1.05,
-		"dst-tolerance-ratio":       1.05,
+		"min-hot-byte-rate":          float64(100),
+		"min-hot-key-rate":           float64(10),
+		"max-zombie-rounds":          float64(3),
+		"max-peer-number":            float64(1000),
+		"byte-rate-rank-step-ratio":  0.05,
+		"key-rate-rank-step-ratio":   0.05,
+		"query-rate-rank-step-ratio": 0.05,
+		"count-rank-step-ratio":      0.01,
+		"great-dec-ratio":            0.95,
+		"minor-dec-ratio":            0.99,
+		"src-tolerance-ratio":        1.05,
+		"dst-tolerance-ratio":        1.05,
 	}
 	c.Assert(conf, DeepEquals, expected1)
 	mustExec([]string{"-u", pdAddr, "scheduler", "config", "balance-hot-region-scheduler", "set", "src-tolerance-ratio", "1.02"}, nil)
@@ -298,6 +295,8 @@ func (s *schedulerTestSuite) TestScheduler(c *C) {
 	checkSchedulerWithStatusCommand(nil, "paused", nil)
 
 	// set label scheduler to disabled manually.
+	echo = mustExec([]string{"-u", pdAddr, "scheduler", "add", "label-scheduler"}, nil)
+	c.Assert(strings.Contains(echo, "Success!"), IsTrue)
 	cfg := leaderServer.GetServer().GetScheduleConfig()
 	origin := cfg.Schedulers
 	cfg.Schedulers = config.SchedulerConfigs{{Type: "label", Disable: true}}

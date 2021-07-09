@@ -34,6 +34,26 @@ import (
 
 func init() {
 	schedulePeerPr = 1.0
+	schedule.RegisterScheduler(HotWriteRegionType, func(opController *schedule.OperatorController, storage *core.Storage, decoder schedule.ConfigDecoder) (schedule.Scheduler, error) {
+		return newHotWriteScheduler(opController, initHotRegionScheduleConfig()), nil
+	})
+	schedule.RegisterScheduler(HotReadRegionType, func(opController *schedule.OperatorController, storage *core.Storage, decoder schedule.ConfigDecoder) (schedule.Scheduler, error) {
+		return newHotReadScheduler(opController, initHotRegionScheduleConfig()), nil
+	})
+}
+
+func newHotReadScheduler(opController *schedule.OperatorController, conf *hotRegionSchedulerConfig) *hotScheduler {
+	ret := newHotScheduler(opController, conf)
+	ret.name = ""
+	ret.types = []rwType{read}
+	return ret
+}
+
+func newHotWriteScheduler(opController *schedule.OperatorController, conf *hotRegionSchedulerConfig) *hotScheduler {
+	ret := newHotScheduler(opController, conf)
+	ret.name = ""
+	ret.types = []rwType{write}
+	return ret
 }
 
 type testHotSchedulerSuite struct{}
@@ -210,12 +230,10 @@ func (s *testHotWriteRegionSchedulerSuite) checkByteRateOnly(c *C, tc *mockclust
 
 	// hot region scheduler is restricted by `hot-region-schedule-limit`.
 	tc.SetHotRegionScheduleLimit(0)
-	c.Assert(hb.Schedule(tc), HasLen, 0)
+	c.Assert(hb.IsScheduleAllowed(tc), IsFalse)
 	hb.(*hotScheduler).clearPendingInfluence()
 	tc.SetHotRegionScheduleLimit(int(config.NewTestOptions().GetScheduleConfig().HotRegionScheduleLimit))
 
-	// hot region scheduler is restricted by schedule limit.
-	tc.SetLeaderScheduleLimit(0)
 	for i := 0; i < 20; i++ {
 		op := hb.Schedule(tc)[0]
 		hb.(*hotScheduler).clearPendingInfluence()
@@ -228,7 +246,6 @@ func (s *testHotWriteRegionSchedulerSuite) checkByteRateOnly(c *C, tc *mockclust
 			testutil.CheckTransferPeerWithLeaderTransfer(c, op, operator.OpHotRegion, 1, 6)
 		}
 	}
-	tc.SetLeaderScheduleLimit(int(config.NewTestOptions().GetScheduleConfig().LeaderScheduleLimit))
 
 	// hot region scheduler is not affect by `balance-region-schedule-limit`.
 	tc.SetRegionScheduleLimit(0)
@@ -279,7 +296,7 @@ func (s *testHotWriteRegionSchedulerSuite) checkByteRateOnly(c *C, tc *mockclust
 	//   Region 1 and 2 are the same, cannot move peer to store 5 due to the label.
 	//   Region 3 can only move peer to store 5.
 	//   Region 5 can only move peer to store 6.
-	tc.SetLeaderScheduleLimit(0)
+	tc.SetHotRegionScheduleLimit(0)
 	for i := 0; i < 30; i++ {
 		op := hb.Schedule(tc)[0]
 		hb.(*hotScheduler).clearPendingInfluence()
@@ -512,7 +529,7 @@ func (s *testHotWriteRegionSchedulerSuite) TestWithPendingInfluence(c *C) {
 		// 1: key rate
 		tc := mockcluster.NewCluster(ctx, opt)
 		tc.SetHotRegionCacheHitsThreshold(0)
-		tc.SetLeaderScheduleLimit(0)
+		tc.SetHotRegionScheduleLimit(0)
 		tc.DisableFeature(versioninfo.JointConsensus)
 		tc.AddRegionStore(1, 20)
 		tc.AddRegionStore(2, 20)
@@ -1264,6 +1281,59 @@ func (s *testHotCacheSuite) TestCheckRegionFlowWithDifferentThreshold(c *C) {
 		} else {
 			c.Check(item.IsNeedDelete(), IsFalse)
 		}
+	}
+}
+
+func (s *testHotCacheSuite) TestSortHotPeer(c *C) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	opt := config.NewTestOptions()
+	tc := mockcluster.NewCluster(ctx, opt)
+	tc.SetMaxReplicas(3)
+	tc.DisableFeature(versioninfo.JointConsensus)
+	sche, err := schedule.CreateScheduler(HotRegionType, schedule.NewOperatorController(ctx, tc, nil), core.NewStorage(kv.NewMemoryKV()), schedule.ConfigJSONDecoder([]byte("null")))
+	c.Assert(err, IsNil)
+	hb := sche.(*hotScheduler)
+	leaderSolver := newBalanceSolver(hb, tc, read, transferLeader)
+
+	hotPeers := []*statistics.HotPeerStat{{
+		RegionID: 1,
+		Loads: []float64{
+			statistics.RegionReadBytes: 10,
+			statistics.RegionReadKeys:  1,
+		},
+	}, {
+		RegionID: 2,
+		Loads: []float64{
+			statistics.RegionReadBytes: 1,
+			statistics.RegionReadKeys:  10,
+		},
+	}, {
+		RegionID: 3,
+		Loads: []float64{
+			statistics.RegionReadBytes: 5,
+			statistics.RegionReadKeys:  6,
+		},
+	}}
+
+	u := leaderSolver.sortHotPeers(hotPeers, 1)
+	checkSortResult(c, []uint64{1}, u)
+
+	u = leaderSolver.sortHotPeers(hotPeers, 2)
+	checkSortResult(c, []uint64{1, 2}, u)
+}
+
+func checkSortResult(c *C, regions []uint64, hotPeers map[*statistics.HotPeerStat]struct{}) {
+	c.Assert(len(regions), Equals, len(hotPeers))
+	for _, region := range regions {
+		in := false
+		for hotPeer := range hotPeers {
+			if hotPeer.RegionID == region {
+				in = true
+				break
+			}
+		}
+		c.Assert(in, IsTrue)
 	}
 }
 

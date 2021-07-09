@@ -51,17 +51,6 @@ func init() {
 		conf.storage = storage
 		return newHotScheduler(opController, conf), nil
 	})
-
-	// FIXME: remove this two schedule after the balance test move in schedulers package
-	{
-		schedule.RegisterScheduler(HotWriteRegionType, func(opController *schedule.OperatorController, storage *core.Storage, decoder schedule.ConfigDecoder) (schedule.Scheduler, error) {
-			return newHotWriteScheduler(opController, initHotRegionScheduleConfig()), nil
-		})
-		schedule.RegisterScheduler(HotReadRegionType, func(opController *schedule.OperatorController, storage *core.Storage, decoder schedule.ConfigDecoder) (schedule.Scheduler, error) {
-			return newHotReadScheduler(opController, initHotRegionScheduleConfig()), nil
-		})
-
-	}
 }
 
 const (
@@ -85,10 +74,8 @@ type hotScheduler struct {
 	name string
 	*BaseScheduler
 	sync.RWMutex
-	leaderLimit uint64
-	peerLimit   uint64
-	types       []rwType
-	r           *rand.Rand
+	types []rwType
+	r     *rand.Rand
 
 	// states across multiple `Schedule` calls
 	pendings map[*pendingInfluence]struct{}
@@ -110,31 +97,15 @@ func newHotScheduler(opController *schedule.OperatorController, conf *hotRegionS
 	ret := &hotScheduler{
 		name:           HotRegionName,
 		BaseScheduler:  base,
-		leaderLimit:    1,
-		peerLimit:      1,
 		types:          []rwType{write, read},
 		r:              rand.New(rand.NewSource(time.Now().UnixNano())),
+		pendings:       map[*pendingInfluence]struct{}{},
 		regionPendings: make(map[uint64]*operator.Operator),
 		conf:           conf,
 	}
-	ret.pendings = map[*pendingInfluence]struct{}{}
 	for ty := resourceType(0); ty < resourceTypeLen; ty++ {
 		ret.stLoadInfos[ty] = map[uint64]*storeLoadDetail{}
 	}
-	return ret
-}
-
-func newHotReadScheduler(opController *schedule.OperatorController, conf *hotRegionSchedulerConfig) *hotScheduler {
-	ret := newHotScheduler(opController, conf)
-	ret.name = ""
-	ret.types = []rwType{read}
-	return ret
-}
-
-func newHotWriteScheduler(opController *schedule.OperatorController, conf *hotRegionSchedulerConfig) *hotScheduler {
-	ret := newHotScheduler(opController, conf)
-	ret.name = ""
-	ret.types = []rwType{write}
 	return ret
 }
 
@@ -158,22 +129,6 @@ func (h *hotScheduler) GetNextInterval(interval time.Duration) time.Duration {
 }
 
 func (h *hotScheduler) IsScheduleAllowed(cluster opt.Cluster) bool {
-	return h.allowBalanceLeader(cluster) || h.allowBalanceRegion(cluster)
-}
-
-func (h *hotScheduler) allowBalanceLeader(cluster opt.Cluster) bool {
-	hotRegionAllowed := h.OpController.OperatorCount(operator.OpHotRegion) < cluster.GetOpts().GetHotRegionScheduleLimit()
-	leaderAllowed := h.OpController.OperatorCount(operator.OpLeader) < cluster.GetOpts().GetLeaderScheduleLimit()
-	if !hotRegionAllowed {
-		operator.OperatorLimitCounter.WithLabelValues(h.GetType(), operator.OpHotRegion.String()).Inc()
-	}
-	if !leaderAllowed {
-		operator.OperatorLimitCounter.WithLabelValues(h.GetType(), operator.OpLeader.String()).Inc()
-	}
-	return hotRegionAllowed && leaderAllowed
-}
-
-func (h *hotScheduler) allowBalanceRegion(cluster opt.Cluster) bool {
 	allowed := h.OpController.OperatorCount(operator.OpHotRegion) < cluster.GetOpts().GetHotRegionScheduleLimit()
 	if !allowed {
 		operator.OperatorLimitCounter.WithLabelValues(h.GetType(), operator.OpHotRegion.String()).Inc()
@@ -280,9 +235,11 @@ func summaryStoresLoad(
 		case read:
 			loads[statistics.ByteDim] = storeLoads[statistics.StoreReadBytes]
 			loads[statistics.KeyDim] = storeLoads[statistics.StoreReadKeys]
+			loads[statistics.QueryDim] = storeLoads[statistics.StoreReadQuery]
 		case write:
 			loads[statistics.ByteDim] = storeLoads[statistics.StoreWriteBytes]
 			loads[statistics.KeyDim] = storeLoads[statistics.StoreWriteKeys]
+			loads[statistics.QueryDim] = storeLoads[statistics.StoreWriteQuery]
 		}
 		// Find all hot peers first
 		var hotPeers []*statistics.HotPeerStat
@@ -311,6 +268,10 @@ func summaryStoresLoad(
 			{
 				ty := "key-rate-" + rwTy.String() + "-" + kind.String()
 				hotPeerSummary.WithLabelValues(ty, fmt.Sprintf("%v", id)).Set(peerLoadSum[statistics.KeyDim])
+			}
+			{
+				ty := "query-rate-" + rwTy.String() + "-" + kind.String()
+				hotPeerSummary.WithLabelValues(ty, fmt.Sprintf("%v", id)).Set(peerLoadSum[statistics.QueryDim])
 			}
 		}
 		for i := range allLoadSum {
@@ -348,6 +309,10 @@ func summaryStoresLoad(
 		{
 			ty := "exp-key-rate-" + rwTy.String() + "-" + kind.String()
 			hotPeerSummary.WithLabelValues(ty, fmt.Sprintf("%v", id)).Set(expectLoads[statistics.KeyDim])
+		}
+		{
+			ty := "exp-query-rate-" + rwTy.String() + "-" + kind.String()
+			hotPeerSummary.WithLabelValues(ty, fmt.Sprintf("%v", id)).Set(expectLoads[statistics.QueryDim])
 		}
 		{
 			ty := "exp-count-rate-" + rwTy.String() + "-" + kind.String()
@@ -484,7 +449,7 @@ func (bs *balanceSolver) init() {
 		maxCur = maxLoad(maxCur, &detail.LoadPred.Current)
 	}
 
-	rankStepRatios := []float64{bs.sche.conf.GetByteRankStepRatio(), bs.sche.conf.GetKeyRankStepRatio()}
+	rankStepRatios := []float64{bs.sche.conf.GetByteRankStepRatio(), bs.sche.conf.GetKeyRankStepRatio(), bs.sche.conf.GetQueryRateRankStepRatio()}
 	stepLoads := make([]float64, statistics.DimLen)
 	for i := range stepLoads {
 		stepLoads[i] = maxCur.Loads[i] * rankStepRatios[i]
@@ -526,14 +491,14 @@ func (bs *balanceSolver) isValid() bool {
 // solve travels all the src stores, hot peers, dst stores and select each one of them to make a best scheduling solution.
 // The comparing between solutions is based on calcProgressiveRank.
 func (bs *balanceSolver) solve() []*operator.Operator {
-	if !bs.isValid() || !bs.allowBalance() {
+	if !bs.isValid() {
 		return nil
 	}
 	bs.cur = &solution{}
 	var (
-		best  *solution
-		ops   []*operator.Operator
-		infls []Influence
+		best *solution
+		op   *operator.Operator
+		infl Influence
 	)
 
 	for srcStoreID := range bs.filterSrcStores() {
@@ -549,9 +514,9 @@ func (bs *balanceSolver) solve() []*operator.Operator {
 				bs.cur.dstStoreID = dstStoreID
 				bs.calcProgressiveRank()
 				if bs.cur.progressiveRank < 0 && bs.betterThan(best) {
-					if newOps, newInfls := bs.buildOperators(); len(newOps) > 0 {
-						ops = newOps
-						infls = newInfls
+					if newOp, newInfl := bs.buildOperator(); newOp != nil {
+						op = newOp
+						infl = *newInfl
 						clone := *bs.cur
 						best = &clone
 					}
@@ -560,25 +525,11 @@ func (bs *balanceSolver) solve() []*operator.Operator {
 		}
 	}
 
-	for i := 0; i < len(ops); i++ {
-		// TODO: multiple operators need to be atomic.
-		if !bs.sche.addPendingInfluence(ops[i], best.srcStoreID, best.dstStoreID, infls[i]) {
-			return nil
-		}
+	if best == nil || !bs.sche.addPendingInfluence(op, best.srcStoreID, best.dstStoreID, infl) {
+		return nil
 	}
-	return ops
-}
 
-// allowBalance check whether the operator count have exceed the hot region limit by type
-func (bs *balanceSolver) allowBalance() bool {
-	switch bs.opTy {
-	case movePeer:
-		return bs.sche.allowBalanceRegion(bs.cluster)
-	case transferLeader:
-		return bs.sche.allowBalanceLeader(bs.cluster)
-	default:
-		return false
-	}
+	return []*operator.Operator{op}
 }
 
 // filterSrcStores compare the min rate and the ratio * expectation rate, if both key and byte rate is greater than
@@ -595,7 +546,10 @@ func (bs *balanceSolver) filterSrcStores() map[uint64]*storeLoadDetail {
 		}
 		minLoad := detail.LoadPred.min()
 		if slice.AllOf(minLoad.Loads, func(i int) bool {
-			return minLoad.Loads[i] > bs.sche.conf.GetSrcToleranceRatio()*detail.LoadPred.Expect.Loads[i]
+			if statistics.IsSelectedDim(i) {
+				return minLoad.Loads[i] > bs.sche.conf.GetSrcToleranceRatio()*detail.LoadPred.Expect.Loads[i]
+			}
+			return true
 		}) {
 			ret[id] = detail
 			hotSchedulerResultCounter.WithLabelValues("src-store-succ", strconv.FormatUint(id, 10)).Inc()
@@ -629,6 +583,15 @@ func (bs *balanceSolver) filterHotPeers() []*statistics.HotPeerStat {
 		return nret
 	}
 
+	union := bs.sortHotPeers(ret, maxPeerNum)
+	ret = make([]*statistics.HotPeerStat, 0, len(union))
+	for peer := range union {
+		ret = appendItem(ret, peer)
+	}
+	return ret
+}
+
+func (bs *balanceSolver) sortHotPeers(ret []*statistics.HotPeerStat, maxPeerNum int) map[*statistics.HotPeerStat]struct{} {
 	byteSort := make([]*statistics.HotPeerStat, len(ret))
 	copy(byteSort, ret)
 	sort.Slice(byteSort, func(i, j int) bool {
@@ -639,7 +602,7 @@ func (bs *balanceSolver) filterHotPeers() []*statistics.HotPeerStat {
 	copy(keySort, ret)
 	sort.Slice(keySort, func(i, j int) bool {
 		k := getRegionStatKind(bs.rwTy, statistics.KeyDim)
-		return byteSort[i].GetLoad(k) > byteSort[j].GetLoad(k)
+		return keySort[i].GetLoad(k) > keySort[j].GetLoad(k)
 	})
 
 	union := make(map[*statistics.HotPeerStat]struct{}, maxPeerNum)
@@ -652,7 +615,7 @@ func (bs *balanceSolver) filterHotPeers() []*statistics.HotPeerStat {
 				break
 			}
 		}
-		for len(keySort) > 0 {
+		for len(union) < maxPeerNum && len(keySort) > 0 {
 			peer := keySort[0]
 			keySort = keySort[1:]
 			if _, ok := union[peer]; !ok {
@@ -661,11 +624,7 @@ func (bs *balanceSolver) filterHotPeers() []*statistics.HotPeerStat {
 			}
 		}
 	}
-	ret = make([]*statistics.HotPeerStat, 0, len(union))
-	for peer := range union {
-		ret = appendItem(ret, peer)
-	}
-	return ret
+	return union
 }
 
 // isRegionAvailable checks whether the given region is not available to schedule.
@@ -776,7 +735,10 @@ func (bs *balanceSolver) pickDstStores(filters []filter.Filter, candidates []*co
 			detail := bs.stLoadDetail[store.GetID()]
 			maxLoads := detail.LoadPred.max().Loads
 			if slice.AllOf(maxLoads, func(i int) bool {
-				return maxLoads[i]*dstToleranceRatio < detail.LoadPred.Expect.Loads[i]
+				if statistics.IsSelectedDim(i) {
+					return maxLoads[i]*dstToleranceRatio < detail.LoadPred.Expect.Loads[i]
+				}
+				return true
 			}) {
 				ret[store.GetID()] = bs.stLoadDetail[store.GetID()]
 				hotSchedulerResultCounter.WithLabelValues("dst-store-succ", strconv.FormatUint(store.GetID(), 10)).Inc()
@@ -1007,12 +969,11 @@ func (bs *balanceSolver) isReadyToBuild() bool {
 	return true
 }
 
-func (bs *balanceSolver) buildOperators() ([]*operator.Operator, []Influence) {
+func (bs *balanceSolver) buildOperator() (op *operator.Operator, infl *Influence) {
 	if !bs.isReadyToBuild() {
 		return nil, nil
 	}
 	var (
-		op       *operator.Operator
 		counters []prometheus.Counter
 		err      error
 	)
@@ -1023,9 +984,6 @@ func (bs *balanceSolver) buildOperators() ([]*operator.Operator, []Influence) {
 		dstPeer := &metapb.Peer{StoreId: bs.cur.dstStoreID, Role: srcPeer.Role}
 		typ := "move-peer"
 		if bs.rwTy == read && bs.cur.region.GetLeader().StoreId == bs.cur.srcStoreID { // move read leader
-			if !bs.sche.allowBalanceLeader(bs.cluster) {
-				return nil, nil
-			}
 			op, err = operator.CreateMoveLeaderOperator(
 				"move-hot-read-leader",
 				bs.cluster,
@@ -1076,39 +1034,29 @@ func (bs *balanceSolver) buildOperators() ([]*operator.Operator, []Influence) {
 		schedulerCounter.WithLabelValues(bs.sche.GetName(), "new-operator"),
 		schedulerCounter.WithLabelValues(bs.sche.GetName(), bs.opTy.String()))
 
-	infl := Influence{
+	infl = &Influence{
 		Loads: append(bs.cur.srcPeerStat.Loads[:0:0], bs.cur.srcPeerStat.Loads...),
 		Count: 1,
 	}
-	return []*operator.Operator{op}, []Influence{infl}
+	return op, infl
 }
 
-func (h *hotScheduler) GetHotReadStatus() *statistics.StoreHotPeersInfos {
+func (h *hotScheduler) GetHotStatus(typ string) *statistics.StoreHotPeersInfos {
 	h.RLock()
 	defer h.RUnlock()
-	asLeader := make(statistics.StoreHotPeersStat, len(h.stLoadInfos[readLeader]))
-	asPeer := make(statistics.StoreHotPeersStat, len(h.stLoadInfos[readPeer]))
-	for id, detail := range h.stLoadInfos[readLeader] {
+	var leaderTyp, peerTyp resourceType
+	switch typ {
+	case HotReadRegionType:
+		leaderTyp, peerTyp = readLeader, readPeer
+	case HotWriteRegionType:
+		leaderTyp, peerTyp = writeLeader, writePeer
+	}
+	asLeader := make(statistics.StoreHotPeersStat, len(h.stLoadInfos[leaderTyp]))
+	asPeer := make(statistics.StoreHotPeersStat, len(h.stLoadInfos[peerTyp]))
+	for id, detail := range h.stLoadInfos[leaderTyp] {
 		asLeader[id] = detail.toHotPeersStat()
 	}
-	for id, detail := range h.stLoadInfos[readPeer] {
-		asPeer[id] = detail.toHotPeersStat()
-	}
-	return &statistics.StoreHotPeersInfos{
-		AsLeader: asLeader,
-		AsPeer:   asPeer,
-	}
-}
-
-func (h *hotScheduler) GetHotWriteStatus() *statistics.StoreHotPeersInfos {
-	h.RLock()
-	defer h.RUnlock()
-	asLeader := make(statistics.StoreHotPeersStat, len(h.stLoadInfos[writeLeader]))
-	asPeer := make(statistics.StoreHotPeersStat, len(h.stLoadInfos[writePeer]))
-	for id, detail := range h.stLoadInfos[writeLeader] {
-		asLeader[id] = detail.toHotPeersStat()
-	}
-	for id, detail := range h.stLoadInfos[writePeer] {
+	for id, detail := range h.stLoadInfos[peerTyp] {
 		asPeer[id] = detail.toHotPeersStat()
 	}
 	return &statistics.StoreHotPeersInfos{
@@ -1233,6 +1181,10 @@ func getRegionStatKind(rwTy rwType, dim int) statistics.RegionStatKind {
 		return statistics.RegionWriteBytes
 	case rwTy == write && dim == statistics.KeyDim:
 		return statistics.RegionWriteKeys
+	case rwTy == write && dim == statistics.QueryDim:
+		return statistics.RegionWriteQuery
+	case rwTy == read && dim == statistics.QueryDim:
+		return statistics.RegionReadQuery
 	}
 	return 0
 }

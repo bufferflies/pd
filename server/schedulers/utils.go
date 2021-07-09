@@ -34,13 +34,14 @@ const (
 	adjustRatio             float64 = 0.005
 	leaderTolerantSizeRatio float64 = 5.0
 	minTolerantSizeRatio    float64 = 1.0
-	influenceAmp            int64   = 200
+	influenceAmp            int64   = 100
 )
 
 type balancePlan struct {
-	kind        core.ScheduleKind
-	cluster     opt.Cluster
-	opInfluence operator.OpInfluence
+	kind              core.ScheduleKind
+	cluster           opt.Cluster
+	opInfluence       operator.OpInfluence
+	tolerantSizeRatio float64
 
 	source *core.StoreInfo
 	target *core.StoreInfo
@@ -52,9 +53,10 @@ type balancePlan struct {
 
 func newBalancePlan(kind core.ScheduleKind, cluster opt.Cluster, opInfluence operator.OpInfluence) *balancePlan {
 	return &balancePlan{
-		kind:        kind,
-		cluster:     cluster,
-		opInfluence: opInfluence,
+		kind:              kind,
+		cluster:           cluster,
+		opInfluence:       opInfluence,
+		tolerantSizeRatio: adjustTolerantRatio(cluster, kind),
 	}
 }
 
@@ -100,7 +102,6 @@ func (p *balancePlan) shouldBalance(scheduleName string) bool {
 	if targetInfluence < 0 {
 		targetInfluence = -targetInfluence
 	}
-	//sourceDelta, targetDelta := sourceInfluence-tolerantResource, targetInfluence+tolerantResource
 	opts := p.cluster.GetOpts()
 	switch p.kind.Resource {
 	case core.LeaderKind:
@@ -109,8 +110,8 @@ func (p *balancePlan) shouldBalance(scheduleName string) bool {
 		p.targetScore = p.target.LeaderScore(p.kind.Policy, targetDelta)
 	case core.RegionKind:
 		sourceDelta, targetDelta := sourceInfluence*influenceAmp-tolerantResource, targetInfluence*influenceAmp+tolerantResource
-		p.sourceScore = p.source.RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), sourceDelta, 0)
-		p.targetScore = p.target.RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), targetDelta, 0)
+		p.sourceScore = p.source.RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), sourceDelta)
+		p.targetScore = p.target.RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), targetDelta)
 	}
 	if opts.IsDebugMetricsEnabled() {
 		opInfluenceStatus.WithLabelValues(scheduleName, strconv.FormatUint(sourceID, 10), "source").Set(float64(sourceInfluence))
@@ -135,24 +136,24 @@ func (p *balancePlan) shouldBalance(scheduleName string) bool {
 
 func (p *balancePlan) getTolerantResource() int64 {
 	if p.kind.Resource == core.LeaderKind && p.kind.Policy == core.ByCount {
-		tolerantSizeRatio := p.cluster.GetOpts().GetTolerantSizeRatio()
-		if tolerantSizeRatio == 0 {
-			tolerantSizeRatio = leaderTolerantSizeRatio
-		}
-		leaderCount := int64(1.0 * tolerantSizeRatio)
-		return leaderCount
+		return int64(p.tolerantSizeRatio)
 	}
-
 	regionSize := p.region.GetApproximateSize()
 	if regionSize < p.cluster.GetAverageRegionSize() {
 		regionSize = p.cluster.GetAverageRegionSize()
 	}
-	regionSize = int64(float64(regionSize) * adjustTolerantRatio(p.cluster))
-	return regionSize
+	return int64(float64(regionSize) * p.tolerantSizeRatio)
 }
 
-func adjustTolerantRatio(cluster opt.Cluster) float64 {
+func adjustTolerantRatio(cluster opt.Cluster, kind core.ScheduleKind) float64 {
 	tolerantSizeRatio := cluster.GetOpts().GetTolerantSizeRatio()
+	if kind.Resource == core.LeaderKind && kind.Policy == core.ByCount {
+		if tolerantSizeRatio == 0 {
+			return leaderTolerantSizeRatio
+		}
+		return tolerantSizeRatio
+	}
+
 	if tolerantSizeRatio == 0 {
 		var maxRegionCount float64
 		stores := cluster.GetStores()
@@ -414,19 +415,60 @@ type storeLoadDetail struct {
 }
 
 func (li *storeLoadDetail) toHotPeersStat() *statistics.HotPeersStat {
-	peers := make([]statistics.HotPeerStat, 0, len(li.HotPeers))
 	totalLoads := make([]float64, statistics.RegionStatCount)
+	if len(li.HotPeers) == 0 {
+		return &statistics.HotPeersStat{
+			TotalLoads:     totalLoads,
+			TotalBytesRate: 0.0,
+			TotalKeysRate:  0.0,
+			TotalQueryRate: 0.0,
+			Count:          0,
+			Stats:          make([]statistics.HotPeerStatShow, 0),
+		}
+	}
+	kind := write
+	if li.HotPeers[0].Kind == statistics.ReadFlow {
+		kind = read
+	}
+
+	peers := make([]statistics.HotPeerStatShow, 0, len(li.HotPeers))
 	for _, peer := range li.HotPeers {
 		if peer.HotDegree > 0 {
-			peers = append(peers, *peer.Clone())
+			peers = append(peers, toHotPeerStatShow(peer, kind))
 			for i := range totalLoads {
 				totalLoads[i] += peer.GetLoad(statistics.RegionStatKind(i))
 			}
 		}
 	}
+
+	b, k, q := getRegionStatKind(kind, statistics.ByteDim), getRegionStatKind(kind, statistics.KeyDim), getRegionStatKind(kind, statistics.QueryDim)
+	byteRate := totalLoads[b]
+	keyRate := totalLoads[k]
+	queryRate := totalLoads[q]
+
 	return &statistics.HotPeersStat{
-		TotalLoads: totalLoads,
-		Count:      len(peers),
-		Stats:      peers,
+		TotalLoads:     totalLoads,
+		TotalBytesRate: byteRate,
+		TotalKeysRate:  keyRate,
+		TotalQueryRate: queryRate,
+		Count:          len(peers),
+		Stats:          peers,
+	}
+}
+
+func toHotPeerStatShow(p *statistics.HotPeerStat, kind rwType) statistics.HotPeerStatShow {
+	b, k, q := getRegionStatKind(kind, statistics.ByteDim), getRegionStatKind(kind, statistics.KeyDim), getRegionStatKind(kind, statistics.QueryDim)
+	byteRate := p.Loads[b]
+	keyRate := p.Loads[k]
+	queryRate := p.Loads[q]
+	return statistics.HotPeerStatShow{
+		StoreID:        p.StoreID,
+		RegionID:       p.RegionID,
+		HotDegree:      p.HotDegree,
+		ByteRate:       byteRate,
+		KeyRate:        keyRate,
+		QueryRate:      queryRate,
+		AntiCount:      p.AntiCount,
+		LastUpdateTime: p.LastUpdateTime,
 	}
 }

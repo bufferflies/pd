@@ -126,7 +126,7 @@ func (s *balanceRegionScheduler) EncodeConfig() ([]byte, error) {
 }
 
 func (s *balanceRegionScheduler) IsScheduleAllowed(cluster opt.Cluster) bool {
-	allowed := s.opController.OperatorCount(operator.OpRegion)-s.opController.OperatorCount(operator.OpMerge) < cluster.GetOpts().GetRegionScheduleLimit()
+	allowed := s.opController.OperatorCount(operator.OpRegion) < cluster.GetOpts().GetRegionScheduleLimit()
 	if !allowed {
 		operator.OperatorLimitCounter.WithLabelValues(s.GetType(), operator.OpRegion.String()).Inc()
 	}
@@ -146,11 +146,12 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) []*operator.Opera
 	sort.Slice(stores, func(i, j int) bool {
 		iOp := plan.GetOpInfluence(stores[i].GetID())
 		jOp := plan.GetOpInfluence(stores[j].GetID())
-		return stores[i].RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), iOp, 0) >
-			stores[j].RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), jOp, 0)
+		return stores[i].RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), iOp) >
+			stores[j].RegionScore(opts.GetRegionScoreFormulaVersion(), opts.GetHighSpaceRatio(), opts.GetLowSpaceRatio(), jOp)
 	})
 	for _, plan.source = range stores {
 		for i := 0; i < balanceRegionRetryLimit; i++ {
+			schedulerCounter.WithLabelValues(s.GetName(), "total").Inc()
 			// Priority pick the region that has a pending peer.
 			// Pending region may means the disk is overload, remove the pending region firstly.
 			plan.region = cluster.RandPendingRegion(plan.SourceStoreID(), s.conf.Ranges, opt.HealthAllowPending(cluster), opt.ReplicatedRegion(cluster), opt.AllowBalanceEmptyRegion(cluster))
@@ -199,7 +200,7 @@ func (s *balanceRegionScheduler) transferPeer(plan *balancePlan) *operator.Opera
 	filters := []filter.Filter{
 		filter.NewExcludedFilter(s.GetName(), nil, plan.region.GetStoreIds()),
 		filter.NewPlacementSafeguard(s.GetName(), plan.cluster, plan.region, plan.source),
-		filter.NewScoreFilter(s.GetName(), plan.source, plan.cluster.GetOpts()),
+		filter.NewRegionScoreFilter(s.GetName(), plan.source, plan.cluster.GetOpts()),
 		filter.NewSpecialUseFilter(s.GetName()),
 		&filter.StoreStateFilter{ActionScope: s.GetName(), MoveRegion: true},
 	}
