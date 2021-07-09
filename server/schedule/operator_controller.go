@@ -827,7 +827,6 @@ func (oc *OperatorController) GetFastOpInfluence(cluster opt.Cluster, influence 
 			log.Debug("op influence less than 10s", zap.Uint64("region-id", op.RegionID()))
 			op.TotalInfluence(influence, region)
 		}
-
 	}
 }
 
