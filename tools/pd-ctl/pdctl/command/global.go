@@ -94,6 +94,7 @@ func doRequest(cmd *cobra.Command, prefix string, method string,
 			req.Header.Set("Content-Type", b.contentType)
 		}
 		// the resp would be returned by the outer function
+		cmd.Printf("req is:%v", req)
 		resp, err = dial(req)
 		if err != nil {
 			return err
