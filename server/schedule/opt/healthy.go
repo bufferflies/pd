@@ -34,7 +34,7 @@ func IsHealthyAllowPending(cluster Cluster, region *core.RegionInfo) bool {
 
 // IsEmptyRegionAllowBalance checks if a region is an empty region and can be balanced.
 func IsEmptyRegionAllowBalance(cluster Cluster, region *core.RegionInfo) bool {
-	return region.GetApproximateSize() > core.EmptyRegionApproximateSize || cluster.GetRegionCount() < balanceEmptyRegionThreshold
+	return region.GetApproximateSize() > int64(cluster.GetOpts().GetMaxMergeRegionSize()) || cluster.GetRegionCount() < balanceEmptyRegionThreshold
 }
 
 // HealthRegion returns a function that checks if a region is healthy for
