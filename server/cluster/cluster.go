@@ -612,6 +612,11 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 		peerInfo := core.NewPeerInfo(peer, loads, interval)
 		c.hotStat.CheckReadAsync(statistics.NewCheckPeerTask(peerInfo, region))
 	}
+	ids := make([]uint64, 0)
+	for i, _ := range regionIDs {
+		ids = append(ids, i)
+	}
+	log.Debug("unreport peer", zap.Uint64s("regions", ids))
 	c.hotStat.CheckReadAsync(statistics.NewCollectUnReportedPeerTask(storeID, regionIDs, interval))
 	return nil
 }
