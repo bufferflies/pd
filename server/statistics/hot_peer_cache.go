@@ -18,6 +18,8 @@ import (
 	"math"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/movingaverage"
@@ -142,6 +144,8 @@ func (f *hotPeerCache) CollectExpiredItems(region *core.RegionInfo) []*HotPeerSt
 		if region.GetStorePeer(storeID) == nil {
 			item := f.getOldHotPeerStat(regionID, storeID)
 			if item != nil {
+				item.Log("item expired", log.Debug)
+				log.Debug("item not fount", zap.Uint64("store-id", storeID), zap.Uint64("region-id", regionID))
 				item.needDelete = true
 				items = append(items, item)
 			}
