@@ -43,6 +43,9 @@ const (
 	HotRegionReportMinInterval = 3
 
 	hotRegionAntiCount = 2
+
+	// ColdHit is used for cold slow, only cold hit more than this will cold down once
+	ColdHit = 6
 )
 
 var minHotThresholds = [RegionStatCount]float64{
@@ -222,6 +225,12 @@ func (f *hotPeerCache) CheckColdPeer(storeID uint64, reportRegions map[uint64]st
 			if oldItem == nil {
 				continue
 			}
+			d := time.Duration(interval*ColdHit) * time.Second
+			if oldItem.LastUpdateTime.Add(d).Before(time.Now()) {
+				log.Debug("hot hit not reach", zap.Uint64("region-id", regionID), zap.Uint64("store-id", storeID))
+				continue
+			}
+
 			newItem := &HotPeerStat{
 				StoreID:  storeID,
 				RegionID: regionID,
