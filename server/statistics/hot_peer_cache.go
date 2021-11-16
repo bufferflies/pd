@@ -220,13 +220,13 @@ func (f *hotPeerCache) CheckColdPeer(storeID uint64, reportRegions map[uint64]st
 	}
 	for regionID := range previousHotStat {
 		if _, ok := reportRegions[regionID]; !ok {
-			log.Debug("region not report", zap.Uint64("region-id", regionID), zap.Uint64("store-id", storeID))
 			oldItem := f.getOldHotPeerStat(regionID, storeID)
 			if oldItem == nil {
 				continue
 			}
 			d := time.Duration(interval*ColdHit) * time.Second
-			if oldItem.LastUpdateTime.Add(d).Before(time.Now()) {
+			oldItem.Log("region not report", log.Debug)
+			if time.Now().Before(oldItem.LastUpdateTime.Add(d)) {
 				log.Debug("cold hit not reach", zap.Uint64("region-id", regionID), zap.Uint64("store-id", storeID))
 				continue
 			}
