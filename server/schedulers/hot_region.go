@@ -786,6 +786,7 @@ func (bs *balanceSolver) calcProgressiveRank() {
 
 	if bs.isForWriteLeader() {
 		if !bs.isTolerance(src, dst, bs.firstPriority) {
+			schedulerCounter.WithLabelValues(HotRegionName, "tolerate-fail").Inc()
 			return
 		}
 		srcRate := srcLd.Loads[bs.firstPriority]
@@ -801,6 +802,7 @@ func (bs *balanceSolver) calcProgressiveRank() {
 		case firstPriorityDimHot && firstPriorityDecRatio <= greatDecRatio && secondPriorityDimHot && secondPriorityDecRatio <= greatDecRatio:
 			// If belong to the case, two dim will be more balanced, the best choice.
 			if !bs.isTolerance(src, dst, bs.firstPriority) || !bs.isTolerance(src, dst, bs.secondPriority) {
+				schedulerCounter.WithLabelValues(HotRegionName, "tolerate-fail").Inc()
 				return
 			}
 			bs.cur.progressiveRank = -3
@@ -809,6 +811,7 @@ func (bs *balanceSolver) calcProgressiveRank() {
 		case firstPriorityDecRatio <= minorDecRatio && secondPriorityDimHot && secondPriorityDecRatio <= greatDecRatio:
 			// If belong to the case, first priority dim will be not worsened, second priority dim will be more balanced.
 			if !bs.isTolerance(src, dst, bs.secondPriority) {
+				schedulerCounter.WithLabelValues(HotRegionName, "tolerate-fail").Inc()
 				return
 			}
 			bs.cur.progressiveRank = -2
@@ -816,6 +819,7 @@ func (bs *balanceSolver) calcProgressiveRank() {
 		case firstPriorityDimHot && firstPriorityDecRatio <= greatDecRatio:
 			// If belong to the case, first priority dim will be more balanced, ignore the second priority dim.
 			if !bs.isTolerance(src, dst, bs.firstPriority) {
+				schedulerCounter.WithLabelValues(HotRegionName, "tolerate-fail").Inc()
 				return
 			}
 			bs.cur.progressiveRank = -1
