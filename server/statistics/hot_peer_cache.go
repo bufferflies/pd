@@ -82,7 +82,7 @@ func NewHotPeerCache(kind FlowKind) *hotPeerCache {
 	} else {
 		c.reportIntervalSecs = ReadReportInterval
 	}
-	c.topNTTL = 3 * time.Duration(c.reportIntervalSecs) * time.Second
+	c.topNTTL = time.Duration(3*c.reportIntervalSecs) * time.Second
 	return c
 }
 
