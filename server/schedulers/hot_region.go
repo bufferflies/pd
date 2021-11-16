@@ -461,6 +461,7 @@ func (bs *balanceSolver) isValid() bool {
 // The comparing between solutions is based on calcProgressiveRank.
 func (bs *balanceSolver) solve() []*operator.Operator {
 	if !bs.isValid() {
+		schedulerCounter.WithLabelValues(HotRegionName, "valid-failed").Inc()
 		return nil
 	}
 	bs.cur = &solution{}
@@ -469,6 +470,7 @@ func (bs *balanceSolver) solve() []*operator.Operator {
 		bs.cur.srcDetail = srcDetail
 
 		for _, srcPeerStat := range bs.filterHotPeers() {
+
 			bs.cur.srcPeerStat = srcPeerStat
 			bs.cur.region = bs.getRegion()
 			if bs.cur.region == nil {
@@ -583,6 +585,9 @@ func (bs *balanceSolver) filterHotPeers() []*statistics.HotPeerStat {
 			items = append(items, item)
 		}
 		return items
+	}
+	if len(ret) <= 0 {
+		schedulerCounter.WithLabelValues(HotRegionName, fmt.Sprintf("%d-has-no-hot-region", bs.cur.srcDetail.getID())).Inc()
 	}
 	if len(ret) <= maxPeerNum {
 		nret := make([]*statistics.HotPeerStat, 0, len(ret))
@@ -825,6 +830,9 @@ func (bs *balanceSolver) calcProgressiveRank() {
 			bs.cur.progressiveRank = -1
 			bs.firstPriorityIsBetter = true
 		}
+	}
+	if bs.cur.progressiveRank >= 0 {
+		schedulerCounter.WithLabelValues(HotRegionName, "rank great 0").Inc()
 	}
 }
 
