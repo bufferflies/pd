@@ -549,8 +549,6 @@ func (bs *balanceSolver) filterSrcStores() map[uint64]*storeLoadDetail {
 		}
 		opInfluenceStatus.WithLabelValues(BalanceLeaderName, strconv.FormatUint(id, 10), bs.rwTy.String()).
 			Set(detail.LoadPred.pending().Loads[bs.firstPriority])
-		opInfluenceStatus.WithLabelValues(BalanceLeaderName, strconv.FormatUint(id, 10), bs.rwTy.String()).
-			Set(detail.LoadPred.pending().Loads[bs.secondPriority])
 		if bs.checkSrcByDimPriorityAndTolerance(detail.LoadPred.min(), &detail.LoadPred.Expect, srcToleranceRatio) {
 			ret[id] = detail
 			hotSchedulerResultCounter.WithLabelValues("src-store-succ"+bs.rwTy.String(), strconv.FormatUint(id, 10)).Inc()
