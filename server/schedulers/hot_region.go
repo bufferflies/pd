@@ -547,7 +547,7 @@ func (bs *balanceSolver) filterSrcStores() map[uint64]*storeLoadDetail {
 		if len(detail.HotPeers) == 0 {
 			continue
 		}
-		opInfluenceStatus.WithLabelValues(BalanceLeaderName, strconv.FormatUint(id, 10), bs.rwTy.String()).
+		opInfluenceStatus.WithLabelValues(HotRegionName, strconv.FormatUint(id, 10), bs.rwTy.String()).
 			Set(detail.LoadPred.pending().Loads[bs.firstPriority])
 		if bs.checkSrcByDimPriorityAndTolerance(detail.LoadPred.min(), &detail.LoadPred.Expect, srcToleranceRatio) {
 			ret[id] = detail
