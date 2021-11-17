@@ -558,6 +558,8 @@ func (bs *balanceSolver) filterSrcStores() map[uint64]*storeLoadDetail {
 			hotSchedulerResultCounter.WithLabelValues("src-store-succ"+bs.rwTy.String(), strconv.FormatUint(id, 10)).Inc()
 		} else {
 			log.Debug("src store failed", zap.Uint64("store-id", id),
+				zap.String("rwTy", bs.rwTy.String()),
+				zap.String("opTy", bs.opTy.String()),
 				zap.Int("priority", bs.firstPriority),
 				zap.Any("loadpred-current", detail.LoadPred.Current),
 				zap.Any("loadpred-future", detail.LoadPred.Future),
