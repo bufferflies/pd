@@ -553,17 +553,17 @@ func (bs *balanceSolver) filterSrcStores() map[uint64]*storeLoadDetail {
 			Set(detail.LoadPred.pending().Loads[1])
 		opInfluenceStatus.WithLabelValues(HotRegionName, strconv.FormatUint(id, 10), bs.rwTy.String()+"query").
 			Set(detail.LoadPred.pending().Loads[2])
+		log.Debug("src store failed", zap.Uint64("store-id", id),
+			zap.String("rwTy", bs.rwTy.String()),
+			zap.String("opTy", bs.opTy.String()),
+			zap.Int("priority", bs.firstPriority),
+			zap.Any("loadpred-current", detail.LoadPred.Current),
+			zap.Any("loadpred-future", detail.LoadPred.Future),
+			zap.Any("loadpred-expect", detail.LoadPred.Expect))
 		if bs.checkSrcByDimPriorityAndTolerance(detail.LoadPred.min(), &detail.LoadPred.Expect, srcToleranceRatio) {
 			ret[id] = detail
 			hotSchedulerResultCounter.WithLabelValues("src-store-succ"+bs.rwTy.String(), strconv.FormatUint(id, 10)).Inc()
 		} else {
-			log.Debug("src store failed", zap.Uint64("store-id", id),
-				zap.String("rwTy", bs.rwTy.String()),
-				zap.String("opTy", bs.opTy.String()),
-				zap.Int("priority", bs.firstPriority),
-				zap.Any("loadpred-current", detail.LoadPred.Current),
-				zap.Any("loadpred-future", detail.LoadPred.Future),
-				zap.Any("loadpred-expect", detail.LoadPred.Expect))
 			hotSchedulerResultCounter.WithLabelValues("src-store-failed"+bs.rwTy.String(), strconv.FormatUint(id, 10)).Inc()
 		}
 	}
@@ -770,9 +770,9 @@ func (bs *balanceSolver) pickDstStores(filters []filter.Filter, candidates []*st
 			id := store.GetID()
 			if bs.checkDstByPriorityAndTolerance(detail.LoadPred.max(), &detail.LoadPred.Expect, dstToleranceRatio) {
 				ret[id] = detail
-				hotSchedulerResultCounter.WithLabelValues("dst-store-succ", strconv.FormatUint(id, 10)).Inc()
+				hotSchedulerResultCounter.WithLabelValues("dst-store-succ"+bs.rwTy.String(), strconv.FormatUint(id, 10)).Inc()
 			} else {
-				hotSchedulerResultCounter.WithLabelValues("dst-store-failed", strconv.FormatUint(id, 10)).Inc()
+				hotSchedulerResultCounter.WithLabelValues("dst-store-failed"+bs.rwTy.String(), strconv.FormatUint(id, 10)).Inc()
 			}
 		}
 	}
@@ -844,6 +844,13 @@ func (bs *balanceSolver) calcProgressiveRank() {
 		}
 	}
 	if bs.cur.progressiveRank >= 0 {
+		log.Debug("src store failed", zap.Uint64("store-id", bs.cur.srcDetail.getID()),
+			zap.String("rwTy", bs.rwTy.String()),
+			zap.String("opTy", bs.opTy.String()),
+			zap.Int("priority", bs.firstPriority),
+			zap.Any("src", srcLd),
+			zap.Any("dst", dstLd),
+			zap.Any("peer", peer))
 		schedulerCounter.WithLabelValues(HotRegionName, "rank great 0").Inc()
 	}
 }
