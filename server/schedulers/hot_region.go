@@ -547,12 +547,21 @@ func (bs *balanceSolver) filterSrcStores() map[uint64]*storeLoadDetail {
 		if len(detail.HotPeers) == 0 {
 			continue
 		}
-		opInfluenceStatus.WithLabelValues(HotRegionName, strconv.FormatUint(id, 10), bs.rwTy.String()).
-			Set(detail.LoadPred.pending().Loads[bs.firstPriority])
+		opInfluenceStatus.WithLabelValues(HotRegionName, strconv.FormatUint(id, 10), bs.rwTy.String()+"bytes").
+			Set(detail.LoadPred.pending().Loads[0])
+		opInfluenceStatus.WithLabelValues(HotRegionName, strconv.FormatUint(id, 10), bs.rwTy.String()+"key").
+			Set(detail.LoadPred.pending().Loads[1])
+		opInfluenceStatus.WithLabelValues(HotRegionName, strconv.FormatUint(id, 10), bs.rwTy.String()+"query").
+			Set(detail.LoadPred.pending().Loads[2])
 		if bs.checkSrcByDimPriorityAndTolerance(detail.LoadPred.min(), &detail.LoadPred.Expect, srcToleranceRatio) {
 			ret[id] = detail
 			hotSchedulerResultCounter.WithLabelValues("src-store-succ"+bs.rwTy.String(), strconv.FormatUint(id, 10)).Inc()
 		} else {
+			log.Debug("src store failed", zap.Uint64("store-id", id),
+				zap.Int("priority", bs.firstPriority),
+				zap.Any("loadpred-current", detail.LoadPred.Current),
+				zap.Any("loadpred-future", detail.LoadPred.Future),
+				zap.Any("loadpred-expect", detail.LoadPred.Expect))
 			hotSchedulerResultCounter.WithLabelValues("src-store-failed"+bs.rwTy.String(), strconv.FormatUint(id, 10)).Inc()
 		}
 	}
