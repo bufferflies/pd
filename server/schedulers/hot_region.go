@@ -461,6 +461,7 @@ func (bs *balanceSolver) isValid() bool {
 // The comparing between solutions is based on calcProgressiveRank.
 func (bs *balanceSolver) solve() []*operator.Operator {
 	if !bs.isValid() {
+		schedulerCounter.WithLabelValues(HotRegionName, "valid-failed").Inc()
 		return nil
 	}
 	bs.cur = &solution{}
@@ -469,6 +470,7 @@ func (bs *balanceSolver) solve() []*operator.Operator {
 		bs.cur.srcDetail = srcDetail
 
 		for _, srcPeerStat := range bs.filterHotPeers() {
+
 			bs.cur.srcPeerStat = srcPeerStat
 			bs.cur.region = bs.getRegion()
 			if bs.cur.region == nil {
@@ -545,12 +547,24 @@ func (bs *balanceSolver) filterSrcStores() map[uint64]*storeLoadDetail {
 		if len(detail.HotPeers) == 0 {
 			continue
 		}
-
+		opInfluenceStatus.WithLabelValues(HotRegionName, strconv.FormatUint(id, 10), bs.rwTy.String()+"bytes").
+			Set(detail.LoadPred.pending().Loads[0])
+		opInfluenceStatus.WithLabelValues(HotRegionName, strconv.FormatUint(id, 10), bs.rwTy.String()+"key").
+			Set(detail.LoadPred.pending().Loads[1])
+		opInfluenceStatus.WithLabelValues(HotRegionName, strconv.FormatUint(id, 10), bs.rwTy.String()+"query").
+			Set(detail.LoadPred.pending().Loads[2])
+		log.Debug("src store failed", zap.Uint64("store-id", id),
+			zap.String("rwTy", bs.rwTy.String()),
+			zap.String("opTy", bs.opTy.String()),
+			zap.Int("priority", bs.firstPriority),
+			zap.Any("loadpred-current", detail.LoadPred.Current),
+			zap.Any("loadpred-future", detail.LoadPred.Future),
+			zap.Any("loadpred-expect", detail.LoadPred.Expect))
 		if bs.checkSrcByDimPriorityAndTolerance(detail.LoadPred.min(), &detail.LoadPred.Expect, srcToleranceRatio) {
 			ret[id] = detail
-			hotSchedulerResultCounter.WithLabelValues("src-store-succ", strconv.FormatUint(id, 10)).Inc()
+			hotSchedulerResultCounter.WithLabelValues("src-store-succ"+bs.rwTy.String(), strconv.FormatUint(id, 10)).Inc()
 		} else {
-			hotSchedulerResultCounter.WithLabelValues("src-store-failed", strconv.FormatUint(id, 10)).Inc()
+			hotSchedulerResultCounter.WithLabelValues("src-store-failed"+bs.rwTy.String(), strconv.FormatUint(id, 10)).Inc()
 		}
 	}
 	return ret
@@ -583,6 +597,9 @@ func (bs *balanceSolver) filterHotPeers() []*statistics.HotPeerStat {
 			items = append(items, item)
 		}
 		return items
+	}
+	if len(ret) <= 0 {
+		schedulerCounter.WithLabelValues(HotRegionName, fmt.Sprintf("%d-has-no-hot-region", bs.cur.srcDetail.getID())).Inc()
 	}
 	if len(ret) <= maxPeerNum {
 		nret := make([]*statistics.HotPeerStat, 0, len(ret))
@@ -753,9 +770,9 @@ func (bs *balanceSolver) pickDstStores(filters []filter.Filter, candidates []*st
 			id := store.GetID()
 			if bs.checkDstByPriorityAndTolerance(detail.LoadPred.max(), &detail.LoadPred.Expect, dstToleranceRatio) {
 				ret[id] = detail
-				hotSchedulerResultCounter.WithLabelValues("dst-store-succ", strconv.FormatUint(id, 10)).Inc()
+				hotSchedulerResultCounter.WithLabelValues("dst-store-succ"+bs.rwTy.String(), strconv.FormatUint(id, 10)).Inc()
 			} else {
-				hotSchedulerResultCounter.WithLabelValues("dst-store-failed", strconv.FormatUint(id, 10)).Inc()
+				hotSchedulerResultCounter.WithLabelValues("dst-store-failed"+bs.rwTy.String(), strconv.FormatUint(id, 10)).Inc()
 			}
 		}
 	}
@@ -786,6 +803,7 @@ func (bs *balanceSolver) calcProgressiveRank() {
 
 	if bs.isForWriteLeader() {
 		if !bs.isTolerance(src, dst, bs.firstPriority) {
+			schedulerCounter.WithLabelValues(HotRegionName, "tolerate-fail").Inc()
 			return
 		}
 		srcRate := srcLd.Loads[bs.firstPriority]
@@ -801,6 +819,7 @@ func (bs *balanceSolver) calcProgressiveRank() {
 		case firstPriorityDimHot && firstPriorityDecRatio <= greatDecRatio && secondPriorityDimHot && secondPriorityDecRatio <= greatDecRatio:
 			// If belong to the case, two dim will be more balanced, the best choice.
 			if !bs.isTolerance(src, dst, bs.firstPriority) || !bs.isTolerance(src, dst, bs.secondPriority) {
+				schedulerCounter.WithLabelValues(HotRegionName, "tolerate-fail").Inc()
 				return
 			}
 			bs.cur.progressiveRank = -3
@@ -809,6 +828,7 @@ func (bs *balanceSolver) calcProgressiveRank() {
 		case firstPriorityDecRatio <= minorDecRatio && secondPriorityDimHot && secondPriorityDecRatio <= greatDecRatio:
 			// If belong to the case, first priority dim will be not worsened, second priority dim will be more balanced.
 			if !bs.isTolerance(src, dst, bs.secondPriority) {
+				schedulerCounter.WithLabelValues(HotRegionName, "tolerate-fail").Inc()
 				return
 			}
 			bs.cur.progressiveRank = -2
@@ -816,11 +836,22 @@ func (bs *balanceSolver) calcProgressiveRank() {
 		case firstPriorityDimHot && firstPriorityDecRatio <= greatDecRatio:
 			// If belong to the case, first priority dim will be more balanced, ignore the second priority dim.
 			if !bs.isTolerance(src, dst, bs.firstPriority) {
+				schedulerCounter.WithLabelValues(HotRegionName, "tolerate-fail").Inc()
 				return
 			}
 			bs.cur.progressiveRank = -1
 			bs.firstPriorityIsBetter = true
 		}
+	}
+	if bs.cur.progressiveRank >= 0 {
+		log.Debug("src store failed", zap.Uint64("store-id", bs.cur.srcDetail.getID()),
+			zap.String("rwTy", bs.rwTy.String()),
+			zap.String("opTy", bs.opTy.String()),
+			zap.Int("priority", bs.firstPriority),
+			zap.Any("src", srcLd),
+			zap.Any("dst", dstLd),
+			zap.Any("peer", peer))
+		schedulerCounter.WithLabelValues(HotRegionName, "rank great 0").Inc()
 	}
 }
 

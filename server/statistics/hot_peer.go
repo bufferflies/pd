@@ -128,7 +128,10 @@ func (stat *HotPeerStat) Log(str string, level func(msg string, fields ...zap.Fi
 		zap.Bool("is-leader", stat.isLeader),
 		zap.Bool("need-delete", stat.IsNeedDelete()),
 		zap.String("type", stat.Kind.String()),
-		zap.Time("last-transfer-leader-time", stat.lastTransferLeaderTime))
+		zap.Time("last-transfer-leader-time", stat.lastTransferLeaderTime),
+		zap.Bool("is-new", stat.isNew),
+		zap.Bool("in-cold", stat.inCold),
+		zap.Time("last-update-time", stat.LastUpdateTime))
 }
 
 // IsNeedCoolDownTransferLeader use cooldown time after transfer leader to avoid unnecessary schedule

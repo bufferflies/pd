@@ -208,6 +208,7 @@ func (w *HotCache) runWriteTask(task FlowItemTask) {
 
 func update(item *HotPeerStat, flow *hotPeerCache) {
 	flow.Update(item)
+	//item.Log("region heartbeat update from cache", log.Debug)
 	if item.IsNeedDelete() {
 		incMetrics("remove_item", item.StoreID, item.Kind)
 	} else if item.IsNew() {

@@ -18,6 +18,8 @@ import (
 	"math"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/movingaverage"
@@ -41,15 +43,18 @@ const (
 	HotRegionReportMinInterval = 3
 
 	hotRegionAntiCount = 2
+
+	// ColdHit is used for cold slow, only cold hit more than this will cold down once
+	ColdHit = 6
 )
 
 var minHotThresholds = [RegionStatCount]float64{
 	RegionWriteBytes: 1 * 1024,
 	RegionWriteKeys:  32,
 	RegionWriteQuery: 32,
-	RegionReadBytes:  8 * 1024,
-	RegionReadKeys:   128,
-	RegionReadQuery:  128,
+	RegionReadBytes:  8 * 1024 / 4,
+	RegionReadKeys:   128 / 4,
+	RegionReadQuery:  128 / 4,
 }
 
 // hotPeerCache saves the hot peer's statistics.
@@ -142,6 +147,8 @@ func (f *hotPeerCache) CollectExpiredItems(region *core.RegionInfo) []*HotPeerSt
 		if region.GetStorePeer(storeID) == nil {
 			item := f.getOldHotPeerStat(regionID, storeID)
 			if item != nil {
+				item.Log("item expired", log.Debug)
+				log.Debug("item not fount", zap.Uint64("store-id", storeID), zap.Uint64("region-id", regionID))
 				item.needDelete = true
 				items = append(items, item)
 			}
@@ -217,6 +224,13 @@ func (f *hotPeerCache) CheckColdPeer(storeID uint64, reportRegions map[uint64]st
 			if oldItem == nil {
 				continue
 			}
+			d := time.Duration(interval*ColdHit) * time.Second
+			oldItem.Log("region not report", log.Debug)
+			if time.Now().Before(oldItem.LastUpdateTime.Add(d)) {
+				log.Debug("cold hit not reach", zap.Uint64("region-id", regionID), zap.Uint64("store-id", storeID))
+				continue
+			}
+
 			newItem := &HotPeerStat{
 				StoreID:  storeID,
 				RegionID: regionID,
