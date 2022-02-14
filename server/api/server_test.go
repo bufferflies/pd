@@ -44,8 +44,8 @@ var (
 	}
 	peers = []*metapb.Peer{
 		{
-			Id:      2,
-			StoreId: store.GetId(),
+			Id:      1,
+			StoreId: 1,
 		},
 	}
 	region = &metapb.Region{

@@ -24,6 +24,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/tikv/pd/server"
 	"github.com/tikv/pd/server/config"
+	"github.com/tikv/pd/server/core"
 	_ "github.com/tikv/pd/server/schedulers"
 )
 
@@ -45,6 +46,15 @@ func (s *testScheduleSuite) SetUpSuite(c *C) {
 	mustBootstrapCluster(c, s.svr)
 	mustPutStore(c, s.svr, 1, metapb.StoreState_Up, nil)
 	mustPutStore(c, s.svr, 2, metapb.StoreState_Up, nil)
+	peer := &metapb.Peer{
+		Id:      2,
+		StoreId: 2,
+	}
+	s.svr.GetRaftCluster().HandleRegionHeartbeat(core.NewRegionInfo(region, peer, core.WithAddPeer(peer), core.WithAddPeer(region.GetPeers()[0])))
+	leader := s.svr.GetRaftCluster().GetRegion(region.GetId()).GetLeader()
+	c.Assert(leader, DeepEquals, peer)
+	follower := s.svr.GetRaftCluster().GetRegion(region.GetId()).GetPeers()
+	c.Assert(follower, NotNil)
 }
 
 func (s *testScheduleSuite) TearDownSuite(c *C) {
@@ -276,6 +286,7 @@ func (s *testScheduleSuite) TestAPI(c *C) {
 		c.Assert(err, IsNil)
 		s.testPauseOrResume(ca.name, ca.createdName, body, ca.extraTestFunc, c)
 	}
+	c.Assert(false, IsTrue)
 
 	// test pause and resume all schedulers.
 
