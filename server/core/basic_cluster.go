@@ -31,6 +31,7 @@ type BasicCluster struct {
 	sync.RWMutex
 	Stores  *StoresInfo
 	Regions *RegionsInfo
+	Buckets *BucketsInfo
 }
 
 // NewBasicCluster creates a BasicCluster.
@@ -38,7 +39,22 @@ func NewBasicCluster() *BasicCluster {
 	return &BasicCluster{
 		Stores:  NewStoresInfo(),
 		Regions: NewRegionsInfo(),
+		Buckets: NewBucketsInfo(),
 	}
+}
+
+// GetBuckets returns the buckets of the given buckets.
+func (bc *BasicCluster) GetBuckets(regionID uint64) *metapb.Buckets {
+	bc.RLock()
+	defer bc.RUnlock()
+	return bc.Buckets.GetByRegionID(regionID)
+}
+
+// GetBucketByKey returns the bucket of the given key.
+func (bc *BasicCluster) GetBucketByKey(keys []byte) *metapb.Buckets {
+	bc.RLock()
+	defer bc.RUnlock()
+	return bc.Buckets.GetByKey(keys)
 }
 
 // GetStores returns all Stores in the cluster.
@@ -440,6 +456,12 @@ func (bc *BasicCluster) GetOverlaps(region *RegionInfo) []*RegionInfo {
 	bc.RLock()
 	defer bc.RUnlock()
 	return bc.Regions.GetOverlaps(region)
+}
+
+// BucketSetInformer
+type BucketSetInformer interface {
+	GetBucketByRegionID(regionID uint64) *metapb.Buckets
+	GetBucketByKey(key []byte) *metapb.Buckets
 }
 
 // RegionSetInformer provides access to a shared informer of regions.
