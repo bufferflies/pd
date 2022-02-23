@@ -601,6 +601,12 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 	return nil
 }
 
+// processBucketHeartbeat update the bucket information.
+func (c *RaftCluster) processBucketHeartbeat(buckets *metapb.Buckets) error {
+	_, err := c.core.PutBuckets(buckets)
+	return err
+}
+
 var regionGuide = core.GenerateRegionGuideFunc(true)
 
 // processRegionHeartbeat updates the region information.

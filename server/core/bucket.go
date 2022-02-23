@@ -15,7 +15,6 @@ package core
 
 import (
 	"bytes"
-	"sort"
 	"sync"
 
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -38,7 +37,7 @@ func (r *regionKeyItem) Less(other btree.Item) bool {
 	return bytes.Compare(left, right) < 0
 }
 
-func (r *regionKeyItem) Contains(key []byte) bool {
+func (r *regionKeyItem) contains(key []byte) bool {
 	start, end := r.startKey, r.endKey
 	return bytes.Compare(key, start) >= 0 && (len(end) == 0 || bytes.Compare(key, end) < 0)
 }
@@ -50,7 +49,7 @@ type BucketsInfo struct {
 	tree    *btree.BTree               // for sort
 }
 
-// NewBucketsInfo creates a BucketsInfo with RegionsInfo
+// NewBucketsInfo creates new BucketsInfo.
 func NewBucketsInfo() *BucketsInfo {
 	return &BucketsInfo{
 		buckets: make(map[uint64]*metapb.Buckets),
@@ -58,19 +57,16 @@ func NewBucketsInfo() *BucketsInfo {
 	}
 }
 
-// Put puts buckets with regionID
-func (b *BucketsInfo) Put(regionID uint64, buckets *metapb.Buckets) {
-	if len(buckets.Keys) == 0 {
-		return
-	}
+// SetBuckets puts a buckets and the origin's bucket will be deleted.
+func (b *BucketsInfo) SetBuckets(buckets *metapb.Buckets) ([]*metapb.Buckets, error) {
 	count := len(buckets.Keys)
 	startKey := buckets.Keys[0]
 	endKey := buckets.Keys[count-1]
-	if origin := b.GetByRegionID(regionID); origin != nil && origin.Version == buckets.Version {
+	if origin := b.GetByRegionID(buckets.RegionId); origin != nil && origin.Version == buckets.Version {
 		// only update state if version is the same.
 		// todo: stats should be merged if the new buckets is the same as the old buckets.
-		b.buckets[regionID] = buckets
-		return
+		b.buckets[buckets.RegionId] = buckets
+		return []*metapb.Buckets{buckets}, nil
 	}
 
 	origins := b.GetByRange(startKey, endKey)
@@ -79,15 +75,29 @@ func (b *BucketsInfo) Put(regionID uint64, buckets *metapb.Buckets) {
 		b.tree.Delete(&item)
 	}
 	// todo : stats should be merged if the new buckets is the same as the old buckets.
-	b.buckets[regionID] = buckets
+	b.buckets[buckets.RegionId] = buckets
 	b.tree.ReplaceOrInsert(&regionKeyItem{
-		ID:       regionID,
+		ID:       buckets.RegionId,
 		startKey: startKey,
 		endKey:   endKey,
 	})
+	return origins, nil
 }
 
-// GetByRegionID gets buckets by regionID
+// GetByRange returns buckets array by key range.
+func (b *BucketsInfo) GetByRange(startKey, endKey []byte) []*metapb.Buckets {
+	var res []*metapb.Buckets
+	b.scanRange(startKey, func(item *regionKeyItem) bool {
+		if len(endKey) > 0 && bytes.Compare(item.startKey, endKey) >= 0 {
+			return false
+		}
+		res = append(res, b.buckets[item.ID])
+		return true
+	})
+	return res
+}
+
+// GetByRegionID returns buckets by regionID
 func (b *BucketsInfo) GetByRegionID(regionID uint64) *metapb.Buckets {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -105,7 +115,7 @@ func (b *BucketsInfo) find(bucket *metapb.Buckets) *regionKeyItem {
 		result = i.(*regionKeyItem)
 		return false
 	})
-	if result != nil && !result.Contains(item.startKey) {
+	if result != nil && !result.contains(item.startKey) {
 		return nil
 	}
 	return result
@@ -123,74 +133,4 @@ func (b *BucketsInfo) scanRange(startKey []byte, f func(item *regionKeyItem) boo
 		i := item.(*regionKeyItem)
 		return f(i)
 	})
-}
-
-// GetByRange gets buckets by range.
-func (b *BucketsInfo) GetByKey(key []byte) *metapb.Buckets {
-	bucket := &metapb.Buckets{Keys: [][]byte{key}}
-	item := b.find(bucket)
-	if item == nil {
-		return nil
-	}
-	return b.buckets[item.ID]
-}
-
-// GetByRange gets buckets by range
-func (b *BucketsInfo) GetByRange(startKey, endKey []byte) []*metapb.Buckets {
-	var res []*metapb.Buckets
-	b.scanRange(startKey, func(item *regionKeyItem) bool {
-		if len(endKey) > 0 && bytes.Compare(item.startKey, endKey) >= 0 {
-			return false
-		}
-		res = append(res, b.buckets[item.ID])
-		return true
-	})
-	return res
-}
-
-// merge merge buckets, it targets
-// bucket key range  as below:
-// origin | a| f | i | o | u |
-// value  |	2| 2 | 2 | 2 |
-// target | a| b | i| o | p|
-// value  |	2| 4 | 2| 2 |
-func merge(origin *metapb.Buckets, target *metapb.Buckets) {
-	originIdx := 0
-	targetIdx := 0
-	startIdx := 0
-	for originIdx < len(origin.Keys) && targetIdx < len(target.Keys) {
-		// target.startKey < origin.startKey
-		if bytes.Compare(target.Keys[targetIdx], origin.Keys[originIdx]) < 0 {
-			originIdx++
-		} else {
-			for ; startIdx < originIdx; startIdx++ {
-				target.Stats.ReadQps[startIdx] += origin.Stats.ReadQps[startIdx]
-				target.Stats.WriteQps[startIdx] += origin.Stats.WriteQps[startIdx]
-				target.Stats.ReadBytes[startIdx] += origin.Stats.ReadBytes[startIdx]
-				target.Stats.WriteBytes[startIdx] += origin.Stats.WriteBytes[startIdx]
-				target.Stats.WriteKeys[startIdx] += origin.Stats.WriteKeys[startIdx]
-				target.Stats.ReadKeys[startIdx] += origin.Stats.ReadKeys[startIdx]
-			}
-			startIdx = originIdx
-			targetIdx++
-		}
-	}
-}
-
-// clip returns the buckets that are in the range [startKey, endKey]
-// if startKey
-func clip(startKey []byte, endKey []byte, buckets []*metapb.Buckets) []*metapb.Buckets {
-	startIdx := sort.Search(len(buckets), func(i int) bool {
-		return bytes.Compare(buckets[i].Keys[0], startKey) >= 0
-	}) - 1
-	if startIdx < 0 {
-		startIdx = 0
-	}
-	endIdx := sort.Search(len(buckets), func(i int) bool {
-		return bytes.Compare(buckets[i].Keys[len(buckets)-1], endKey) > 0
-	})
-	if endIdx > len(buckets)-1 {
-		endIdx = len(buckets) - 1
-	}
-	return buckets[startIdx : endIdx+1]
 }

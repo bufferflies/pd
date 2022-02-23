@@ -50,13 +50,6 @@ func (bc *BasicCluster) GetBuckets(regionID uint64) *metapb.Buckets {
 	return bc.Buckets.GetByRegionID(regionID)
 }
 
-// GetBucketByKey returns the bucket of the given key.
-func (bc *BasicCluster) GetBucketByKey(keys []byte) *metapb.Buckets {
-	bc.RLock()
-	defer bc.RUnlock()
-	return bc.Buckets.GetByKey(keys)
-}
-
 // GetStores returns all Stores in the cluster.
 func (bc *BasicCluster) GetStores() []*StoreInfo {
 	bc.RLock()
@@ -368,6 +361,14 @@ func isRegionRecreated(region *RegionInfo) bool {
 	// means the entire key range is unavailable, and we don't expect unsafe recover to perform
 	// better than recreating the cluster.
 	return region.GetRegionEpoch().GetVersion() == 1 && region.GetRegionEpoch().GetConfVer() == 1 && (len(region.GetStartKey()) != 0 || len(region.GetEndKey()) != 0)
+}
+
+// PutBucket puts a buckets
+func (bc *BasicCluster) PutBuckets(bucket *metapb.Buckets) (*metapb.Buckets, error) {
+	bc.Lock()
+	defer bc.Unlock()
+	bc.Buckets.SetBuckets(bucket)
+	return nil, nil
 }
 
 // PreCheckPutRegion checks if the region is valid to put.
