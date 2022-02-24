@@ -187,8 +187,9 @@ func (s *RegionSyncer) StartSyncWithLeader(addr string) {
 				stats := resp.GetRegionStats()
 				regions := resp.GetRegions()
 				regionLeaders := resp.GetRegionLeaders()
-				//buckets := resp.GetBuckets()
+				buckets := resp.GetBuckets()
 				hasStats := len(stats) == len(regions)
+				hasBuckets := len(buckets) == len(regions)
 				for i, r := range regions {
 					var (
 						region       *core.RegionInfo
@@ -217,7 +218,9 @@ func (s *RegionSyncer) StartSyncWithLeader(addr string) {
 					overlaps := bc.PutRegion(region)
 
 					if saveKV {
-						err = storage.SaveRegion(r)
+						if err = storage.SaveRegion(r); err == nil && hasBuckets {
+							err = storage.SaveBucket(buckets[i])
+						}
 					}
 					if err == nil {
 						s.history.Record(region)

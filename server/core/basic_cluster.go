@@ -364,11 +364,11 @@ func isRegionRecreated(region *RegionInfo) bool {
 }
 
 // PutBucket puts a buckets
-func (bc *BasicCluster) PutBuckets(bucket *metapb.Buckets) (*metapb.Buckets, error) {
+func (bc *BasicCluster) PutBuckets(buckets *metapb.Buckets) []*metapb.Buckets {
 	bc.Lock()
 	defer bc.Unlock()
-	bc.Buckets.SetBuckets(bucket)
-	return nil, nil
+	bc.Buckets.SetBuckets(buckets)
+	return nil
 }
 
 // PreCheckPutRegion checks if the region is valid to put.

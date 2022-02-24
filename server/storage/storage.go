@@ -64,9 +64,11 @@ func NewStorageWithLevelDBBackend(
 type coreStorage struct {
 	Storage
 	regionStorage endpoint.RegionStorage
+	bucketStorage endpoint.BucketStorage
 
 	useRegionStorage int32
 	regionLoaded     bool
+	bucketLoaded     bool
 	mu               sync.Mutex
 }
 
@@ -74,10 +76,11 @@ type coreStorage struct {
 // Usually, the defaultStorage is etcd-backend, and the regionStorage is LevelDB-backend.
 // coreStorage can switch between the defaultStorage and regionStorage to read and write
 // the region info, and all other storage interfaces will use the defaultStorage.
-func NewCoreStorage(defaultStorage Storage, regionStorage endpoint.RegionStorage) Storage {
+func NewCoreStorage(defaultStorage Storage, regionStorage endpoint.RegionStorage, bucketStorage endpoint.BucketStorage) Storage {
 	return &coreStorage{
 		Storage:       defaultStorage,
 		regionStorage: regionStorage,
+		bucketStorage: bucketStorage,
 	}
 }
 
@@ -147,6 +150,55 @@ func (ps *coreStorage) DeleteRegion(region *metapb.Region) error {
 		return ps.regionStorage.DeleteRegion(region)
 	}
 	return ps.Storage.DeleteRegion(region)
+}
+
+// LoadBucketssOnce loads all buckets from storage to metapb.Buckets. If the underlying storage is the bucket storage,
+// it will only load once.
+func (ps *coreStorage) LoadBucketssOnce(ctx context.Context, f func(region *metapb.Buckets) []*metapb.Buckets) error {
+	if atomic.LoadInt32(&ps.useRegionStorage) == 0 {
+		return ps.Storage.LoadBuckets(ctx, f)
+	}
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	if !ps.bucketLoaded {
+		if err := ps.bucketStorage.LoadBuckets(ctx, f); err != nil {
+			return err
+		}
+		ps.bucketLoaded = true
+	}
+	return nil
+}
+
+// LoadBucket loads the bucket from the storage.
+func (ps *coreStorage) LoadBucket(regionID uint64, bucket *metapb.Buckets) (ok bool, err error) {
+	if atomic.LoadInt32(&ps.useRegionStorage) == 1 {
+		return ps.bucketStorage.LoadBucket(regionID, bucket)
+	}
+	return ps.bucketStorage.LoadBucket(regionID, bucket)
+}
+
+// LoadBuckets loads all buckets from storage to *metapb.Buckets.
+func (ps *coreStorage) LoadBuckets(ctx context.Context, f func(region *metapb.Buckets) []*metapb.Buckets) error {
+	if atomic.LoadInt32(&ps.useRegionStorage) > 0 {
+		return ps.bucketStorage.LoadBuckets(ctx, f)
+	}
+	return ps.Storage.LoadBuckets(ctx, f)
+}
+
+// SaveBucket saves one bucket to storage.
+func (ps *coreStorage) SaveBucket(buckets *metapb.Buckets) error {
+	if atomic.LoadInt32(&ps.useRegionStorage) > 0 {
+		return ps.bucketStorage.SaveBucket(buckets)
+	}
+	return ps.Storage.SaveBucket(buckets)
+}
+
+// DeleteRegion deletes one buckets from storage.
+func (ps *coreStorage) DeleteBucket(buckets *metapb.Buckets) error {
+	if atomic.LoadInt32(&ps.useRegionStorage) > 0 {
+		return ps.bucketStorage.DeleteBucket(buckets)
+	}
+	return ps.Storage.DeleteBucket(buckets)
 }
 
 // Flush flushes the dirty region to storage.
