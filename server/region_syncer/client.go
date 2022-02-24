@@ -187,6 +187,7 @@ func (s *RegionSyncer) StartSyncWithLeader(addr string) {
 				stats := resp.GetRegionStats()
 				regions := resp.GetRegions()
 				regionLeaders := resp.GetRegionLeaders()
+				//buckets := resp.GetBuckets()
 				hasStats := len(stats) == len(regions)
 				for i, r := range regions {
 					var (

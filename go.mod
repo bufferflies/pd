@@ -30,7 +30,7 @@ require (
 	github.com/pingcap/errcode v0.3.0
 	github.com/pingcap/errors v0.11.5-0.20201126102027-b0a155152ca3
 	github.com/pingcap/failpoint v0.0.0-20200702092429-9f69995143ce
-	github.com/pingcap/kvproto v0.0.0-20220215045702-d229fcc888c8 // indirect
+	github.com/pingcap/kvproto v0.0.0-20220215045702-d229fcc888c8
 	github.com/pingcap/log v0.0.0-20210906054005-afc726e70354
 	github.com/pingcap/sysutil v0.0.0-20211208032423-041a72e5860d
 	github.com/pingcap/tidb-dashboard v0.0.0-20220117082709-e8076b5c79ba
@@ -53,3 +53,5 @@ require (
 	google.golang.org/grpc v1.26.0
 	gotest.tools/gotestsum v1.7.0
 )
+
+replace github.com/pingcap/kvproto v0.0.0-20220215045702-d229fcc888c8 => github.com/bufferflies/kvproto v0.0.0-20220223134257-bdb909d5bc77
