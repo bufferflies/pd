@@ -29,6 +29,10 @@ const (
 	queue = 20000
 	// bucketBtreeDegree is the degree of the btree used to store the bucket.
 	bucketBtreeDegree = 10
+
+	// the range of the hot degree should be [-1000, 10000]
+	minHotDegree = -10000
+	maxHotDegree = 10000
 )
 
 var minHotThresholds = [statistics.RegionStatCount]uint64{
@@ -62,9 +66,9 @@ func NewBucketsCache(ctx context.Context) *HotBucketCache {
 }
 
 // BucketStats returns the hot stats of the regions that great than degree.
-func (f *HotBucketCache) BucketStats(degree int) map[uint64][]*BucketStat {
+func (h *HotBucketCache) BucketStats(degree int) map[uint64][]*BucketStat {
 	rst := make(map[uint64][]*BucketStat)
-	for _, item := range f.bucketsOfRegion {
+	for _, item := range h.bucketsOfRegion {
 		stats := make([]*BucketStat, 0)
 		for _, b := range item.stats {
 			if b.hotDegree >= degree {
@@ -77,61 +81,61 @@ func (f *HotBucketCache) BucketStats(degree int) map[uint64][]*BucketStat {
 }
 
 // putItem puts the item into the cache.
-func (f *HotBucketCache) putItem(item *BucketTreeItem, overlaps []*BucketTreeItem) {
+func (h *HotBucketCache) putItem(item *BucketTreeItem, overlaps []*BucketTreeItem) {
 	// only update origin if the key range is same.
-	if origin := f.bucketsOfRegion[item.regionID]; item.compareKeyRange(origin) {
+	if origin := h.bucketsOfRegion[item.regionID]; item.compareKeyRange(origin) {
 		origin = item
 		return
 	}
 	for _, item := range overlaps {
-		delete(f.bucketsOfRegion, item.regionID)
-		f.tree.Delete(item)
+		delete(h.bucketsOfRegion, item.regionID)
+		h.tree.Delete(item)
 	}
-	f.bucketsOfRegion[item.regionID] = item
-	f.tree.ReplaceOrInsert(item)
+	h.bucketsOfRegion[item.regionID] = item
+	h.tree.ReplaceOrInsert(item)
 }
 
 // CheckAsync returns true if the task queue is not full.
-func (f *HotBucketCache) CheckAsync(task flowBucketsItemTask) bool {
+func (h *HotBucketCache) CheckAsync(task flowBucketsItemTask) bool {
 	select {
-	case f.taskQueue <- task:
+	case h.taskQueue <- task:
 		return true
 	default:
 		return false
 	}
 }
 
-func (f *HotBucketCache) updateItems() {
+func (h *HotBucketCache) updateItems() {
 	for {
 		select {
-		case <-f.ctx.Done():
+		case <-h.ctx.Done():
 			return
-		case task := <-f.taskQueue:
-			task.runTask(f)
+		case task := <-h.taskQueue:
+			task.runTask(h)
 		}
 	}
 }
 
 // checkBucketsFlow returns the new item tree and the overlaps.
-func (f *HotBucketCache) checkBucketsFlow(buckets *metapb.Buckets) (newItem *BucketTreeItem, overlaps []*BucketTreeItem) {
+func (h *HotBucketCache) checkBucketsFlow(buckets *metapb.Buckets) (newItem *BucketTreeItem, overlaps []*BucketTreeItem) {
 	newItem = convertToBucketTreeItem(buckets)
-	f.collectBucketsMetrics(newItem)
-	origin := f.bucketsOfRegion[buckets.GetRegionId()]
-	// origin is exist and the version is same.
+	origin := h.bucketsOfRegion[buckets.GetRegionId()]
+	// origin is existed and the version is same.
 	if newItem.compareKeyRange(origin) {
 		overlaps = []*BucketTreeItem{origin}
 	} else {
-		overlaps = f.getBucketsByKeyRange(newItem.startKey, newItem.endKey)
+		overlaps = h.getBucketsByKeyRange(newItem.startKey, newItem.endKey)
 	}
 	newItem.inheritItem(overlaps)
 	newItem.calculateHotDegree()
+	h.collectBucketsMetrics(newItem)
 	return newItem, overlaps
 }
 
 // getBucketsByKeyRange returns the overlaps with the key range.
-func (f *HotBucketCache) getBucketsByKeyRange(startKey, endKey []byte) []*BucketTreeItem {
+func (h *HotBucketCache) getBucketsByKeyRange(startKey, endKey []byte) []*BucketTreeItem {
 	var res []*BucketTreeItem
-	f.scanRange(startKey, func(item *BucketTreeItem) bool {
+	h.scanRange(startKey, func(item *BucketTreeItem) bool {
 		if len(endKey) > 0 && bytes.Compare(item.startKey, endKey) >= 0 {
 			return false
 		}
@@ -141,12 +145,12 @@ func (f *HotBucketCache) getBucketsByKeyRange(startKey, endKey []byte) []*Bucket
 	return res
 }
 
-func (b *HotBucketCache) find(startKey []byte) *BucketTreeItem {
+func (h *HotBucketCache) find(startKey []byte) *BucketTreeItem {
 	item := &BucketTreeItem{
 		startKey: startKey,
 	}
 	var result *BucketTreeItem
-	b.tree.DescendLessOrEqual(item, func(i btree.Item) bool {
+	h.tree.DescendLessOrEqual(item, func(i btree.Item) bool {
 		result = i.(*BucketTreeItem)
 		return false
 	})
@@ -156,26 +160,24 @@ func (b *HotBucketCache) find(startKey []byte) *BucketTreeItem {
 	return result
 }
 
-func (b *HotBucketCache) scanRange(startKey []byte, f func(item *BucketTreeItem) bool) {
-	startItem := b.find(startKey)
+func (h *HotBucketCache) scanRange(startKey []byte, f func(item *BucketTreeItem) bool) {
+	startItem := h.find(startKey)
 	if startItem == nil {
 		startItem = &BucketTreeItem{
 			startKey: startKey,
 		}
 	}
-	b.tree.AscendGreaterOrEqual(startItem, func(item btree.Item) bool {
+	h.tree.AscendGreaterOrEqual(startItem, func(item btree.Item) bool {
 		i := item.(*BucketTreeItem)
 		return f(i)
 	})
 }
 
 // collectBucketsMetrics collects the metrics of the hot stats.
-func (f *HotBucketCache) collectBucketsMetrics(stats *BucketTreeItem) {
+func (h *HotBucketCache) collectBucketsMetrics(stats *BucketTreeItem) {
 	bucketsHeartbeatIntervalHist.Observe(float64(stats.interval))
-	for i := 0; i < int(statistics.RegionStatCount); i++ {
-		for _, bucket := range stats.stats {
-			flowHist.Observe(float64(bucket.GetLoad(statistics.RegionStatKind(i))))
-		}
+	for _, bucket := range stats.stats {
+		flowHist.Observe(float64(bucket.hotDegree))
 	}
 }
 
@@ -205,7 +207,7 @@ type BucketTreeItem struct {
 	version  uint64
 }
 
-// less returns true if the start key is less than the other.
+// Less returns true if the start key is less than the other.
 func (b *BucketTreeItem) Less(than btree.Item) bool {
 	return bytes.Compare(b.startKey, than.(*BucketTreeItem).startKey) < 0
 }
@@ -261,9 +263,11 @@ func (b *BucketTreeItem) calculateHotDegree() {
 		hot := slice.AnyOf(stat, func(i int) bool {
 			return stat.loads[i] > minHotThresholds[i]
 		})
-		if hot {
+		if hot && stat.hotDegree < maxHotDegree {
 			stat.hotDegree++
-		} else {
+
+		}
+		if !hot && stat.hotDegree > minHotDegree {
 			stat.hotDegree--
 		}
 	}
