@@ -16,7 +16,6 @@ package buckets
 
 import (
 	"context"
-	"fmt"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"testing"
@@ -93,12 +92,11 @@ func (t *testHotBucketCache) TestGetBucketsByKeyRange(c *C) {
 	c.Assert(cache.bucketsOfRegion, HasLen, 2)
 	c.Assert(cache.tree.Len(), Equals, 2)
 
-	// overlaps will delete
+	// orgin bucket is |--10--|--20--|--30--|,overlaps will delete
 	bucket3 := newTestBuckets(2, [][]byte{[]byte("15"), []byte("30")})
 	bucket3.Version = 2
 	newItems, overlaps = cache.checkBucketsFlow(bucket3)
-	c.Assert(len(overlaps), Greater, 0)
-	c.Assert(overlaps[0], DeepEquals, convertToBucketTreeItem(bucket1))
+	c.Assert(overlaps, HasLen, 2)
 	cache.putItem(newItems, overlaps)
 	c.Assert(cache.bucketsOfRegion, HasLen, 1)
 	c.Assert(cache.tree.Len(), Equals, 1)
@@ -131,8 +129,7 @@ func (t *testHotBucketCache) TestInheritItem(c *C) {
 		expect:  []int{0},
 	}}
 
-	for i, v := range testdata {
-		fmt.Println(i)
+	for _, v := range testdata {
 		buckets := convertToBucketTreeItem(v.buckets)
 		buckets.inheritItem([]*BucketTreeItem{originBucketItem})
 		c.Assert(buckets.stats, HasLen, len(v.expect))

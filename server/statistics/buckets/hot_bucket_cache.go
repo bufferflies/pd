@@ -260,7 +260,7 @@ func (b *BucketTreeItem) inheritItem(origins []*BucketTreeItem) {
 
 func (b *BucketTreeItem) calculateHotDegree() {
 	for _, stat := range b.stats {
-		hot := slice.AnyOf(stat, func(i int) bool {
+		hot := slice.AnyOf(stat.loads, func(i int) bool {
 			return stat.loads[i] > minHotThresholds[i]
 		})
 		if hot && stat.hotDegree < maxHotDegree {
