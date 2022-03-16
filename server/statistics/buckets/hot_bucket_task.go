@@ -16,6 +16,7 @@ package buckets
 
 import (
 	"context"
+
 	"github.com/pingcap/kvproto/pkg/metapb"
 )
 
@@ -38,7 +39,7 @@ type checkBucketsTask struct {
 }
 
 // NewCheckPeerTask creates task to update peerInfo
-func NewCheckPeerTask(buckets *metapb.Buckets) *checkBucketsTask {
+func NewCheckPeerTask(buckets *metapb.Buckets) flowBucketsItemTask {
 	return &checkBucketsTask{
 		Buckets: buckets,
 	}

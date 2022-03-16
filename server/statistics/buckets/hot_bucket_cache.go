@@ -17,11 +17,28 @@ package buckets
 import (
 	"bytes"
 	"context"
+	"go.uber.org/zap"
+	"sort"
 
 	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/btree"
 	"github.com/tikv/pd/pkg/slice"
 	"github.com/tikv/pd/server/statistics"
+)
+
+type direction int
+
+const (
+	left direction = iota
+	right
+)
+
+type status int
+
+const (
+	alive status = iota
+	archive
 )
 
 const (
@@ -84,12 +101,26 @@ func (h *HotBucketCache) BucketStats(degree int) map[uint64][]*BucketStat {
 func (h *HotBucketCache) putItem(item *BucketTreeItem, overlaps []*BucketTreeItem) {
 	// only update origin if the key range is same.
 	if origin := h.bucketsOfRegion[item.regionID]; item.compareKeyRange(origin) {
-		origin = item
+		log.Info("update bucket", zap.Any("bucket", origin))
+		*origin = *item
 		return
 	}
-	for _, item := range overlaps {
-		delete(h.bucketsOfRegion, item.regionID)
-		h.tree.Delete(item)
+	// if the key range is not same, we need to remove the old item and add the new one.
+	for i, overlap := range overlaps {
+		if i == 0 {
+			overlap.split(item.startKey, left)
+			overlap.status = archive
+		} else if i == len(overlaps)-1 {
+			overlap.split(item.endKey, right)
+			overlap.status = archive
+		} else {
+			log.Info("delete bucket", zap.Any("bucket", overlap))
+			h.tree.Delete(overlaps[i])
+		}
+		if bytes.Compare(overlap.startKey, overlap.endKey) >= 0 {
+			log.Info("delete bucket", zap.ByteString("start-key", overlap.startKey), zap.ByteString("end-key", overlap.endKey))
+			h.tree.Delete(overlap)
+		}
 	}
 	h.bucketsOfRegion[item.regionID] = item
 	h.tree.ReplaceOrInsert(item)
@@ -119,14 +150,13 @@ func (h *HotBucketCache) updateItems() {
 // checkBucketsFlow returns the new item tree and the overlaps.
 func (h *HotBucketCache) checkBucketsFlow(buckets *metapb.Buckets) (newItem *BucketTreeItem, overlaps []*BucketTreeItem) {
 	newItem = convertToBucketTreeItem(buckets)
-	origin := h.bucketsOfRegion[buckets.GetRegionId()]
 	// origin is existed and the version is same.
-	if newItem.compareKeyRange(origin) {
+	if origin := h.bucketsOfRegion[buckets.GetRegionId()]; newItem.compareKeyRange(origin) {
 		overlaps = []*BucketTreeItem{origin}
 	} else {
 		overlaps = h.getBucketsByKeyRange(newItem.startKey, newItem.endKey)
 	}
-	newItem.inheritItem(overlaps)
+	newItem.inherit(overlaps)
 	newItem.calculateHotDegree()
 	h.collectBucketsMetrics(newItem)
 	return newItem, overlaps
@@ -205,6 +235,7 @@ type BucketTreeItem struct {
 	stats    []*BucketStat
 	interval int64
 	version  uint64
+	status   status
 }
 
 // Less returns true if the start key is less than the other.
@@ -228,34 +259,74 @@ func (b *BucketTreeItem) contains(key []byte) bool {
 	return bytes.Compare(b.startKey, key) <= 0 && bytes.Compare(key, b.endKey) < 0
 }
 
-// inheritItem inherits the hot stats from the old item to the new item.
-func (b *BucketTreeItem) inheritItem(origins []*BucketTreeItem) {
+// inherit inherits the hot stats from the old item to the new item.
+func (b *BucketTreeItem) inherit(origins []*BucketTreeItem) {
 	// it will not inherit if the end key of the new item is less than the start key of the old item.
 	// such as: new item: |----a----| |----b----|  origins item: |----c----| |----d----|
 	if len(origins) == 0 || len(b.stats) == 0 || bytes.Compare(b.endKey, origins[0].startKey) < 0 {
 		return
 	}
 	newItem := b.stats
-	bucketStats := make([]*BucketStat, 0)
-	for _, item := range origins {
-		// it will skip if item is left of the new item.
-		// such as: new item: |--c--|--d--|  origins item:|--b--|--c--|--d--|
-		if bytes.Compare(b.startKey, item.endKey) < 0 {
-			bucketStats = append(bucketStats, item.stats...)
-		}
-	}
+	bucketStats := b.clip(origins)
 
 	// p1/p2: the hot stats of the new/old index
 	for p1, p2 := 0, 0; p1 < len(newItem) && p2 < len(bucketStats); {
-		if newItem[p1].hotDegree <= bucketStats[p2].hotDegree {
-			newItem[p1].hotDegree = bucketStats[p2].hotDegree
+		oldDegree := bucketStats[p2].hotDegree
+		newDegree := newItem[p1].hotDegree
+		if oldDegree < 0 && newDegree <= 0 && oldDegree < newDegree {
+			newItem[p1].hotDegree = oldDegree
+		}
+		if oldDegree > 0 && oldDegree > newDegree {
+			newItem[p1].hotDegree = oldDegree
 		}
 		if bytes.Compare(newItem[p1].endKey, bucketStats[p2].endKey) > 0 {
 			p2++
+		} else if bytes.Compare(newItem[p1].endKey, bucketStats[p2].endKey) == 0 {
+			p2++
+			p1++
 		} else {
 			p1++
 		}
 	}
+}
+
+// clip clips origins bucket to BucketStat array
+func (b *BucketTreeItem) clip(origins []*BucketTreeItem) []*BucketStat {
+	// the first buckets should contains the start key.
+	if len(origins) == 0 || !origins[0].contains(b.startKey) {
+		return nil
+	}
+	bucketStats := make([]*BucketStat, 0)
+	index := sort.Search(len(origins[0].stats), func(i int) bool {
+		return bytes.Compare(b.startKey, origins[0].stats[i].endKey) < 0
+	})
+	bucketStats = append(bucketStats, origins[0].stats[index:]...)
+	for i := 1; i < len(origins); i++ {
+		bucketStats = append(bucketStats, origins[i].stats...)
+	}
+	return bucketStats
+}
+
+func (b *BucketTreeItem) split(key []byte, dir direction) bool {
+	if !b.contains(key) || bytes.Compare(b.endKey, key) == 0 {
+		return false
+	}
+	if dir == left {
+		b.endKey = key
+		index := sort.Search(len(b.stats), func(i int) bool {
+			return bytes.Compare(b.stats[i].endKey, key) >= 0
+		})
+		b.stats = b.stats[:index+1]
+		b.stats[len(b.stats)-1].endKey = key
+	} else {
+		b.startKey = key
+		index := sort.Search(len(b.stats), func(i int) bool {
+			return bytes.Compare(b.stats[i].startKey, key) >= 0
+		})
+		b.stats = b.stats[index:]
+		b.stats[0].startKey = key
+	}
+	return true
 }
 
 func (b *BucketTreeItem) calculateHotDegree() {
@@ -265,7 +336,6 @@ func (b *BucketTreeItem) calculateHotDegree() {
 		})
 		if hot && stat.hotDegree < maxHotDegree {
 			stat.hotDegree++
-
 		}
 		if !hot && stat.hotDegree > minHotDegree {
 			stat.hotDegree--
@@ -301,6 +371,7 @@ func convertToBucketTreeItem(buckets *metapb.Buckets) *BucketTreeItem {
 		regionID: buckets.RegionId,
 		stats:    items,
 		version:  buckets.Version,
+		status:   alive,
 	}
 }
 
