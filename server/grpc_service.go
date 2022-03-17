@@ -947,17 +947,7 @@ func (s *GrpcServer) GetRegion(ctx context.Context, request *pdpb.GetRegionReque
 	if rc == nil {
 		return &pdpb.GetRegionResponse{Header: s.notBootstrappedHeader()}, nil
 	}
-	region := rc.GetRegionByKey(request.GetRegionKey())
-	if region == nil {
-		return &pdpb.GetRegionResponse{Header: s.header()}, nil
-	}
-	return &pdpb.GetRegionResponse{
-		Header:       s.header(),
-		Region:       region.GetMeta(),
-		Leader:       region.GetLeader(),
-		DownPeers:    region.GetDownPeers(),
-		PendingPeers: region.GetPendingPeers(),
-	}, nil
+	return parseGetRegionResponse(rc.GetRegionByKey(request.GetRegionKey()), s.header(), request.GetNeedBuckets()), nil
 }
 
 // GetPrevRegion implements gRPC PDServer
@@ -981,17 +971,7 @@ func (s *GrpcServer) GetPrevRegion(ctx context.Context, request *pdpb.GetRegionR
 		return &pdpb.GetRegionResponse{Header: s.notBootstrappedHeader()}, nil
 	}
 
-	region := rc.GetPrevRegionByKey(request.GetRegionKey())
-	if region == nil {
-		return &pdpb.GetRegionResponse{Header: s.header()}, nil
-	}
-	return &pdpb.GetRegionResponse{
-		Header:       s.header(),
-		Region:       region.GetMeta(),
-		Leader:       region.GetLeader(),
-		DownPeers:    region.GetDownPeers(),
-		PendingPeers: region.GetPendingPeers(),
-	}, nil
+	return parseGetRegionResponse(rc.GetPrevRegionByKey(request.GetRegionKey()), s.header(), request.GetNeedBuckets()), nil
 }
 
 // GetRegionByID implements gRPC PDServer.
@@ -1014,17 +994,7 @@ func (s *GrpcServer) GetRegionByID(ctx context.Context, request *pdpb.GetRegionB
 	if rc == nil {
 		return &pdpb.GetRegionResponse{Header: s.notBootstrappedHeader()}, nil
 	}
-	region := rc.GetRegion(request.GetRegionId())
-	if region == nil {
-		return &pdpb.GetRegionResponse{Header: s.header()}, nil
-	}
-	return &pdpb.GetRegionResponse{
-		Header:       s.header(),
-		Region:       region.GetMeta(),
-		Leader:       region.GetLeader(),
-		DownPeers:    region.GetDownPeers(),
-		PendingPeers: region.GetPendingPeers(),
-	}, nil
+	return parseGetRegionResponse(rc.GetRegion(request.GetRegionId()), s.header(), request.GetNeedBuckets()), nil
 }
 
 // ScanRegions implements gRPC PDServer.
@@ -1990,4 +1960,21 @@ func (s *GrpcServer) ReportMinResolvedTS(ctx context.Context, request *pdpb.Repo
 	return &pdpb.ReportMinResolvedTsResponse{
 		Header: s.header(),
 	}, nil
+}
+
+func parseGetRegionResponse(region *core.RegionInfo, header *pdpb.ResponseHeader, needBuckets bool) *pdpb.GetRegionResponse {
+	if region == nil {
+		return &pdpb.GetRegionResponse{Header: header}
+	}
+	rsp := &pdpb.GetRegionResponse{
+		Header:       header,
+		Region:       region.GetMeta(),
+		Leader:       region.GetLeader(),
+		DownPeers:    region.GetDownPeers(),
+		PendingPeers: region.GetPendingPeers(),
+	}
+	if needBuckets {
+		rsp.Buckets = region.GetBuckets()
+	}
+	return rsp
 }
