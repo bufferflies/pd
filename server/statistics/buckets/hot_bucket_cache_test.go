@@ -32,50 +32,56 @@ var _ = Suite(&testHotBucketCache{})
 type testHotBucketCache struct{}
 
 func (t *testHotBucketCache) TestPutItem(c *C) {
-	//case1: region split
-	{
-		cache := NewBucketsCache(context.Background())
-		testdata := []struct {
-			regionID    uint64
-			keys        [][]byte
-			regionCount int
-			treeLen     int
-			version     uint64
-		}{{
-			regionID:    1,
-			keys:        [][]byte{[]byte("10"), []byte("20"), []byte("30")},
-			treeLen:     1,
-			regionCount: 1,
-		}, {
-			// old region1 should be achived
-			regionID:    1,
-			keys:        [][]byte{[]byte("20"), []byte("30")},
-			version:     2,
-			regionCount: 1,
-			treeLen:     2,
-		}, {
-			regionID:    2,
-			keys:        [][]byte{[]byte("15"), []byte("20")},
-			regionCount: 2,
-			treeLen:     3,
-		}, {
-			regionID:    3,
-			keys:        [][]byte{[]byte("10"), []byte("15")},
-			regionCount: 3,
-			treeLen:     3,
-		}}
-		for i, v := range testdata {
-			fmt.Println(i)
-			bucket := convertToBucketTreeItem(newTestBuckets(v.regionID, v.version, v.keys))
-			origins := cache.getBucketsByKeyRange(bucket.startKey, bucket.endKey)
-			cache.putItem(bucket, origins)
-			c.Assert(cache.bucketsOfRegion, HasLen, v.regionCount)
-			c.Assert(cache.tree.Len(), Equals, v.treeLen)
-			c.Assert(cache.bucketsOfRegion[v.regionID], NotNil)
-			c.Assert(cache.find([]byte("10")), NotNil)
-			if v.treeLen != v.regionCount {
-				c.Assert(cache.find([]byte("10")).status, Equals, archive)
-			}
+	// case1: region split
+	// origin:  |10|20|30|
+	// new: 	|10|15|20|30|
+	//when report bucket[15:20], the origin should be truncate into two region
+	cache := NewBucketsCache(context.Background())
+	testdata := []struct {
+		regionID    uint64
+		keys        [][]byte
+		regionCount int
+		treeLen     int
+		version     uint64
+	}{{
+		regionID:    1,
+		keys:        [][]byte{[]byte("10"), []byte("20"), []byte("30")},
+		treeLen:     1,
+		regionCount: 1,
+	}, {
+		regionID:    2,
+		keys:        [][]byte{[]byte("15"), []byte("20")},
+		regionCount: 1,
+		treeLen:     3,
+	}, {
+		regionID:    1,
+		keys:        [][]byte{[]byte("20"), []byte("30")},
+		version:     2,
+		regionCount: 2,
+		treeLen:     3,
+	}, {
+		regionID:    3,
+		keys:        [][]byte{[]byte("10"), []byte("15")},
+		regionCount: 3,
+		treeLen:     3,
+	}, {
+		// region 1,2,3 will be merged.
+		regionID:    4,
+		keys:        [][]byte{[]byte("10"), []byte("30")},
+		regionCount: 1,
+		treeLen:     1,
+	}}
+	for i, v := range testdata {
+		fmt.Println(i)
+		bucket := convertToBucketTreeItem(newTestBuckets(v.regionID, v.version, v.keys))
+		origins := cache.getBucketsByKeyRange(bucket.startKey, bucket.endKey)
+		cache.putItem(bucket, origins)
+		c.Assert(cache.bucketsOfRegion, HasLen, v.regionCount)
+		c.Assert(cache.tree.Len(), Equals, v.treeLen)
+		c.Assert(cache.bucketsOfRegion[v.regionID], NotNil)
+		c.Assert(cache.find([]byte("10")), NotNil)
+		if v.treeLen != v.regionCount {
+			c.Assert(cache.find([]byte("10")).status, Equals, archive)
 		}
 	}
 
@@ -128,29 +134,26 @@ func newTestBuckets(regionID uint64, version uint64, keys [][]byte) *metapb.Buck
 
 func (t *testHotBucketCache) TestGetBucketsByKeyRange(c *C) {
 	cache := NewBucketsCache(context.Background())
-	bucket1 := newTestBuckets(1, 1, [][]byte{[]byte("10"), []byte("20")})
-	bucket2 := newTestBuckets(2, 1, [][]byte{[]byte("20"), []byte("30")})
+	bucket1 := newTestBuckets(1, 1, [][]byte{[]byte("10"), []byte("15")})
+	bucket2 := newTestBuckets(2, 1, [][]byte{[]byte("15"), []byte("20")})
+	bucket3 := newTestBuckets(3, 1, [][]byte{[]byte("20"), []byte("30")})
 	newItems, overlaps := cache.checkBucketsFlow(bucket1)
 	c.Assert(overlaps, IsNil)
 	cache.putItem(newItems, overlaps)
 	newItems, overlaps = cache.checkBucketsFlow(bucket2)
 	c.Assert(overlaps, IsNil)
 	cache.putItem(newItems, overlaps)
+	newItems, overlaps = cache.checkBucketsFlow(bucket3)
+	c.Assert(overlaps, IsNil)
+	cache.putItem(newItems, overlaps)
 	c.Assert(cache.find([]byte("10")), NotNil)
 	c.Assert(cache.find([]byte("30")), IsNil)
-	c.Assert(cache.getBucketsByKeyRange([]byte("10"), []byte("30")), HasLen, 2)
-	c.Assert(cache.getBucketsByKeyRange([]byte("10"), []byte("20")), HasLen, 1)
+	c.Assert(cache.getBucketsByKeyRange([]byte("10"), []byte("30")), HasLen, 3)
+	c.Assert(cache.getBucketsByKeyRange([]byte("10"), []byte("20")), HasLen, 2)
 	c.Assert(cache.getBucketsByKeyRange([]byte("1"), []byte("10")), HasLen, 0)
-	c.Assert(cache.bucketsOfRegion, HasLen, 2)
-	c.Assert(cache.tree.Len(), Equals, 2)
+	c.Assert(cache.bucketsOfRegion, HasLen, 3)
+	c.Assert(cache.tree.Len(), Equals, 3)
 
-	// orgin bucket is |--10--|--20--|--30--|,overlaps will delete
-	bucket3 := newTestBuckets(2, 2, [][]byte{[]byte("15"), []byte("30")})
-	newItems, overlaps = cache.checkBucketsFlow(bucket3)
-	c.Assert(overlaps, HasLen, 2)
-	cache.putItem(newItems, overlaps)
-	c.Assert(cache.bucketsOfRegion, HasLen, 1)
-	c.Assert(cache.tree.Len(), Equals, 1)
 }
 
 func (t *testHotBucketCache) TestInherit(c *C) {
@@ -222,9 +225,12 @@ func (t *testHotBucketCache) TestSplit(c *C) {
 	}, {
 		splitKey: []byte("60"),
 		dir:      left,
-		success:  false,
-	},
-	}
+		success:  true,
+	}, {
+		splitKey: []byte("60"),
+		dir:      right,
+		success:  true,
+	}}
 	for i, v := range testdata {
 		fmt.Println(i)
 		origin := convertToBucketTreeItem(newTestBuckets(1, 1, [][]byte{[]byte("10"), []byte("20"), []byte("60")}))

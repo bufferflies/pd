@@ -17,6 +17,7 @@ package buckets
 import (
 	. "github.com/pingcap/check"
 	"golang.org/x/net/context"
+	"strconv"
 	"time"
 )
 
@@ -50,7 +51,7 @@ func (s *testHotBucketTaskCache) TestCheckBucketsTask(c *C) {
 	c.Assert(item.stats[0].hotDegree, Equals, -1)
 	c.Assert(item.stats[1].hotDegree, Equals, -1)
 
-	// case2: add bucket successful and the hotDgree should inheritted from the old one.
+	// case2: add bucket successful and the hot degree should inherit from the old one.
 	buckets = newTestBuckets(2, 1, [][]byte{[]byte("20"), []byte("30")})
 	task = NewCheckPeerTask(buckets)
 	c.Assert(s.hotCache.CheckAsync(task), IsTrue)
@@ -59,8 +60,7 @@ func (s *testHotBucketTaskCache) TestCheckBucketsTask(c *C) {
 	c.Assert(item.stats, HasLen, 1)
 	c.Assert(item.stats[0].hotDegree, Equals, -2)
 
-	//case3：add bucket successful and the hotDgre
-	//e should inheritted from the old one.
+	//case3：add bucket successful and the hot degree should inherit from the old one.
 	buckets = newTestBuckets(1, 1, [][]byte{[]byte("10"), []byte("20")})
 	task = NewCheckPeerTask(buckets)
 	c.Assert(s.hotCache.CheckAsync(task), IsTrue)
@@ -68,4 +68,22 @@ func (s *testHotBucketTaskCache) TestCheckBucketsTask(c *C) {
 	item = s.hotCache.bucketsOfRegion[uint64(1)]
 	c.Assert(item.stats, HasLen, 1)
 	c.Assert(item.stats[0].hotDegree, Equals, -2)
+}
+
+func (s *testHotBucketTaskCache) TestCollectBucketStatsTask(c *C) {
+	// case1： add bucket successfully
+	for i := uint64(0); i < 10; i++ {
+		buckets := convertToBucketTreeItem(newTestBuckets(i, 1, [][]byte{[]byte(strconv.FormatUint(i*10, 10)),
+			[]byte(strconv.FormatUint((i+1)*10, 10))}))
+		s.hotCache.putItem(buckets, nil)
+	}
+
+	task := newCollectBucketStatsTask(0)
+	c.Assert(s.hotCache.CheckAsync(task), IsTrue)
+	stats := task.waitRet(context.Background())
+	c.Assert(stats, HasLen, 10)
+	task = newCollectBucketStatsTask(1)
+	c.Assert(s.hotCache.CheckAsync(task), IsTrue)
+	stats = task.waitRet(context.Background())
+	c.Assert(stats, HasLen, 0)
 }

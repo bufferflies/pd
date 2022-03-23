@@ -17,6 +17,7 @@ package buckets
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"go.uber.org/zap"
 	"sort"
 
@@ -92,7 +93,9 @@ func (h *HotBucketCache) BucketStats(degree int) map[uint64][]*BucketStat {
 				stats = append(stats, b)
 			}
 		}
-		rst[item.regionID] = stats
+		if len(stats) > 0 {
+			rst[item.regionID] = stats
+		}
 	}
 	return rst
 }
@@ -101,12 +104,24 @@ func (h *HotBucketCache) BucketStats(degree int) map[uint64][]*BucketStat {
 func (h *HotBucketCache) putItem(item *BucketTreeItem, overlaps []*BucketTreeItem) {
 	// only update origin if the key range is same.
 	if origin := h.bucketsOfRegion[item.regionID]; item.compareKeyRange(origin) {
-		log.Info("update bucket", zap.Any("bucket", origin))
 		*origin = *item
 		return
 	}
+	log.Info("putItem", zap.Stringer("item", item), zap.Int("overlaps", len(overlaps)), zap.Uint64("regionID", item.regionID))
+	// the origin bucket split two region(a,b) if overlaps is one and bigger than the new.
+	// b will be inserted into the tree
+	if len(overlaps) == 1 && overlaps[0].bigger(item) {
+		extra := overlaps[0].Clone()
+		extra.split(item.endKey, right)
+		h.tree.ReplaceOrInsert(extra)
+		overlaps = append(overlaps, extra)
+		delete(h.bucketsOfRegion, overlaps[0].regionID)
+	}
 	// if the key range is not same, we need to remove the old item and add the new one.
 	for i, overlap := range overlaps {
+		if overlap.status == alive {
+			delete(h.bucketsOfRegion, overlap.regionID)
+		}
 		if i == 0 {
 			overlap.split(item.startKey, left)
 			overlap.status = archive
@@ -114,11 +129,11 @@ func (h *HotBucketCache) putItem(item *BucketTreeItem, overlaps []*BucketTreeIte
 			overlap.split(item.endKey, right)
 			overlap.status = archive
 		} else {
-			log.Info("delete bucket", zap.Any("bucket", overlap))
-			h.tree.Delete(overlaps[i])
+			log.Info("delete middle bucket from tree", zap.ByteString("start-key", overlap.startKey), zap.ByteString("end-key", overlap.endKey))
+			h.tree.Delete(overlap)
 		}
 		if bytes.Compare(overlap.startKey, overlap.endKey) >= 0 {
-			log.Info("delete bucket", zap.ByteString("start-key", overlap.startKey), zap.ByteString("end-key", overlap.endKey))
+			log.Info("delete borderless bucket from tree", zap.ByteString("keys", overlap.startKey))
 			h.tree.Delete(overlap)
 		}
 	}
@@ -243,6 +258,11 @@ func (b *BucketTreeItem) Less(than btree.Item) bool {
 	return bytes.Compare(b.startKey, than.(*BucketTreeItem).startKey) < 0
 }
 
+func (b *BucketTreeItem) bigger(other *BucketTreeItem) bool {
+	return bytes.Compare(b.startKey, other.startKey) < 0 &&
+		bytes.Compare(b.endKey, other.endKey) > 0
+}
+
 // compareKeyRange returns whether the key range is overlaps with the item.
 func (b *BucketTreeItem) compareKeyRange(origin *BucketTreeItem) bool {
 	if origin == nil {
@@ -255,14 +275,28 @@ func (b *BucketTreeItem) compareKeyRange(origin *BucketTreeItem) bool {
 	return bytes.Compare(b.startKey, origin.startKey) == 0 && bytes.Compare(b.endKey, origin.endKey) == 0
 }
 
+func (b *BucketTreeItem) Clone() *BucketTreeItem {
+	item := &BucketTreeItem{
+		regionID: b.regionID,
+		startKey: b.startKey,
+		endKey:   b.endKey,
+		interval: b.interval,
+		version:  b.version,
+		stats:    make([]*BucketStat, len(b.stats)),
+	}
+	copy(item.stats, b.stats)
+	return item
+}
+
 func (b *BucketTreeItem) contains(key []byte) bool {
 	return bytes.Compare(b.startKey, key) <= 0 && bytes.Compare(key, b.endKey) < 0
 }
 
-// inherit inherits the hot stats from the old item to the new item.
+// inherit the hot stats from the old item to the new item.
 func (b *BucketTreeItem) inherit(origins []*BucketTreeItem) {
 	// it will not inherit if the end key of the new item is less than the start key of the old item.
-	// such as: new item: |----a----| |----b----|  origins item: |----c----| |----d----|
+	// such as: new item: |----a----| |----b----|
+	// origins item: |----c----| |----d----|
 	if len(origins) == 0 || len(b.stats) == 0 || bytes.Compare(b.endKey, origins[0].startKey) < 0 {
 		return
 	}
@@ -308,7 +342,7 @@ func (b *BucketTreeItem) clip(origins []*BucketTreeItem) []*BucketStat {
 }
 
 func (b *BucketTreeItem) split(key []byte, dir direction) bool {
-	if !b.contains(key) || bytes.Compare(b.endKey, key) == 0 {
+	if !b.contains(key) && bytes.Compare(b.endKey, key) != 0 {
 		return false
 	}
 	if dir == left {
@@ -321,9 +355,9 @@ func (b *BucketTreeItem) split(key []byte, dir direction) bool {
 	} else {
 		b.startKey = key
 		index := sort.Search(len(b.stats), func(i int) bool {
-			return bytes.Compare(b.stats[i].startKey, key) >= 0
+			return bytes.Compare(b.stats[i].startKey, key) > 0
 		})
-		b.stats = b.stats[index:]
+		b.stats = b.stats[index-1:]
 		b.stats[0].startKey = key
 	}
 	return true
@@ -341,6 +375,10 @@ func (b *BucketTreeItem) calculateHotDegree() {
 			stat.hotDegree--
 		}
 	}
+}
+
+func (b *BucketTreeItem) String() string {
+	return fmt.Sprintf("[region-id:%d][start-key:%s][end-key:%s][status:%v]", b.regionID, b.startKey, b.endKey, b.status)
 }
 
 // convertToBucketTreeItem
