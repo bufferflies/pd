@@ -522,6 +522,15 @@ func (s *GrpcServer) PutStore(ctx context.Context, request *pdpb.PutStoreRequest
 
 	log.Info("put store ok", zap.Stringer("store", store))
 	CheckPDVersion(s.persistOptions)
+	if !core.IsStoreContainLabel(request.GetStore(), core.EngineKey, core.EngineTiFlash) {
+		go func(url string) {
+			// tikv may not ready to server.
+			time.Sleep(5 * time.Second)
+			if err := s.storeConfigManager.Load(url); err != nil {
+				log.Error("load store config failed", zap.String("url", url), zap.Error(err))
+			}
+		}(store.GetStatusAddress())
+	}
 
 	return &pdpb.PutStoreResponse{
 		Header:            s.header(),
@@ -791,6 +800,7 @@ func (s *GrpcServer) ReportBuckets(stream pdpb.PD_ReportBucketsServer) error {
 		}
 		err = rc.HandleBucketHeartbeat(request.Buckets)
 		if err != nil {
+			log.Warn("update bucket failed ", zap.Error(err))
 			regionHeartbeatCounter.WithLabelValues("report", "err").Inc()
 			continue
 		}
