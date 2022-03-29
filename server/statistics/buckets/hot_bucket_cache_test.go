@@ -35,7 +35,7 @@ func (t *testHotBucketCache) TestPutItem(c *C) {
 	// case1: region split
 	// origin:  |10|20|30|
 	// new: 	|10|15|20|30|
-	//when report bucket[15:20], the origin should be truncate into two region
+	// when report bucket[15:20], the origin should be truncate into two region
 	cache := NewBucketsCache(context.Background())
 	testdata := []struct {
 		regionID    uint64
@@ -84,10 +84,8 @@ func (t *testHotBucketCache) TestPutItem(c *C) {
 			c.Assert(cache.find([]byte("10")).status, Equals, archive)
 		}
 	}
-
 }
 
-//func (t *testHotPeerCache) TestCache(c *C) {
 func (t *testHotBucketCache) TestConvertToBucketTreeStat(c *C) {
 	buckets := &metapb.Buckets{
 		RegionId: 1,
@@ -129,7 +127,6 @@ func newTestBuckets(regionID uint64, version uint64, keys [][]byte) *metapb.Buck
 			WriteQps:   flow,
 		}}
 	return rst
-
 }
 
 func (t *testHotBucketCache) TestGetBucketsByKeyRange(c *C) {
@@ -153,7 +150,6 @@ func (t *testHotBucketCache) TestGetBucketsByKeyRange(c *C) {
 	c.Assert(cache.getBucketsByKeyRange([]byte("1"), []byte("10")), HasLen, 0)
 	c.Assert(cache.bucketsOfRegion, HasLen, 3)
 	c.Assert(cache.tree.Len(), Equals, 3)
-
 }
 
 func (t *testHotBucketCache) TestInherit(c *C) {

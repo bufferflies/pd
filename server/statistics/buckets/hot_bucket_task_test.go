@@ -60,7 +60,7 @@ func (s *testHotBucketTaskCache) TestCheckBucketsTask(c *C) {
 	c.Assert(item.stats, HasLen, 1)
 	c.Assert(item.stats[0].hotDegree, Equals, -2)
 
-	//case3：add bucket successful and the hot degree should inherit from the old one.
+	// case3：add bucket successful and the hot degree should inherit from the old one.
 	buckets = newTestBuckets(1, 1, [][]byte{[]byte("10"), []byte("20")})
 	task = NewCheckPeerTask(buckets)
 	c.Assert(s.hotCache.CheckAsync(task), IsTrue)

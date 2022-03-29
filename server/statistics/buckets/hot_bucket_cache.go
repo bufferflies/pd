@@ -64,11 +64,10 @@ var minHotThresholds = [statistics.RegionStatCount]uint64{
 
 // HotBucketCache is the cache of hot stats.
 type HotBucketCache struct {
-	tree               *btree.BTree               // regionId -> BucketsStats
-	bucketsOfRegion    map[uint64]*BucketTreeItem // regionId -> BucketsStats
-	reportIntervalSecs int
-	taskQueue          chan flowBucketsItemTask
-	ctx                context.Context
+	tree            *btree.BTree               // regionId -> BucketsStats
+	bucketsOfRegion map[uint64]*BucketTreeItem // regionId -> BucketsStats
+	taskQueue       chan flowBucketsItemTask
+	ctx             context.Context
 }
 
 // NewBucketsCache creates a new hot spot cache.
@@ -272,7 +271,7 @@ func (b *BucketTreeItem) compareKeyRange(origin *BucketTreeItem) bool {
 	if b.version == origin.version {
 		return true
 	}
-	return bytes.Compare(b.startKey, origin.startKey) == 0 && bytes.Compare(b.endKey, origin.endKey) == 0
+	return bytes.Equal(b.startKey, origin.startKey) && bytes.Equal(b.endKey, origin.endKey)
 }
 
 func (b *BucketTreeItem) Clone() *BucketTreeItem {
@@ -315,7 +314,7 @@ func (b *BucketTreeItem) inherit(origins []*BucketTreeItem) {
 		}
 		if bytes.Compare(newItem[p1].endKey, bucketStats[p2].endKey) > 0 {
 			p2++
-		} else if bytes.Compare(newItem[p1].endKey, bucketStats[p2].endKey) == 0 {
+		} else if bytes.Equal(newItem[p1].endKey, bucketStats[p2].endKey) {
 			p2++
 			p1++
 		} else {
@@ -342,7 +341,7 @@ func (b *BucketTreeItem) clip(origins []*BucketTreeItem) []*BucketStat {
 }
 
 func (b *BucketTreeItem) split(key []byte, dir direction) bool {
-	if !b.contains(key) && bytes.Compare(b.endKey, key) != 0 {
+	if !b.contains(key) && !bytes.Equal(b.endKey, key) {
 		return false
 	}
 	if dir == left {
