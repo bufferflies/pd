@@ -40,8 +40,8 @@ func errRegionIsStale(region *metapb.Region, origin *metapb.Region) error {
 }
 
 // RegionInfo records detail region info.
-// most properties is Read-Only once created exclude buckets.
-// buckets should be modified through report buckets and the version is greater than the current.
+// the properties are Read-Only once created except buckets.
+// the `buckets` could be modified by the request `report buckets` with greater version.
 type RegionInfo struct {
 	term              uint64
 	meta              *metapb.Region
@@ -169,8 +169,7 @@ func RegionFromHeartbeat(heartbeat *pdpb.RegionHeartbeatRequest, opts ...RegionC
 }
 
 // Inherit inherits the buckets and region size from the parent region.
-// CorrectApproximateSize correct approximate size by the previous size if here exists an reported RegionInfo.
-//
+// correct approximate size and buckets by the previous size if here exists a reported RegionInfo.
 // See https://github.com/tikv/tikv/issues/11114
 func (r *RegionInfo) Inherit(origin *RegionInfo) {
 	// regionSize should not be zero if region is not empty.
@@ -414,10 +413,10 @@ func (r *RegionInfo) GetStat() *pdpb.RegionStat {
 }
 
 // UpdateBuckets sets the buckets of the region.
-func (r *RegionInfo) UpdateBuckets(buckets *metapb.Buckets) bool {
-	// bucket is only nil in test cases.
+func (r *RegionInfo) UpdateBuckets(buckets *metapb.Buckets) {
+	// the bucket can't be nil except in the test cases.
 	if buckets == nil {
-		return true
+		return
 	}
 	// only need to update bucket keys,versions.
 	newBuckets := &metapb.Buckets{
@@ -425,7 +424,7 @@ func (r *RegionInfo) UpdateBuckets(buckets *metapb.Buckets) bool {
 		Version:  buckets.GetVersion(),
 		Keys:     buckets.GetKeys(),
 	}
-	return atomic.CompareAndSwapPointer(&r.buckets, r.buckets, unsafe.Pointer(newBuckets))
+	atomic.StorePointer(&r.buckets, unsafe.Pointer(newBuckets))
 }
 
 // GetBuckets returns the buckets of the region.
