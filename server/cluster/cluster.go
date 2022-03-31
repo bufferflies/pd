@@ -306,8 +306,13 @@ func (c *RaftCluster) LoadClusterInfo() (*RaftCluster, error) {
 	if err := c.storage.LoadRegionsOnce(c.ctx, c.core.CheckAndPutRegion); err != nil {
 		return nil, err
 	}
-	log.Info("load regions",
-		zap.Int("count", c.core.GetRegionCount()),
+
+	if err := c.storage.LoadBucketsOnce(c.ctx, c.core.PutBuckets); err != nil {
+		return nil, err
+	}
+
+	log.Info("load regions and buckets",
+		zap.Int("region-count", c.core.GetRegionCount()),
 		zap.Duration("cost", time.Since(start)),
 	)
 	for _, store := range c.GetStores() {
@@ -725,6 +730,12 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 				log.Error("failed to save region to storage",
 					zap.Uint64("region-id", region.GetID()),
 					logutil.ZapRedactStringer("region-meta", core.RegionToHexMeta(region.GetMeta())),
+					errs.ZapError(err))
+			}
+
+			if err := storage.SaveBucket(c.core.GetBuckets(region.GetID())); err != nil {
+				log.Error("failed to save bucket to storage",
+					zap.Uint64("region-id", region.GetID()),
 					errs.ZapError(err))
 			}
 			regionEventCounter.WithLabelValues("update_kv").Inc()

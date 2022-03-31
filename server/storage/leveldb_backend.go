@@ -16,6 +16,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -45,6 +46,7 @@ type levelDBBackend struct {
 	ekm                 *encryptionkm.KeyManager
 	mu                  sync.RWMutex
 	batchRegions        map[string]*metapb.Region
+	butchBuckets        map[string]*metapb.Buckets
 	batchSize           int
 	cacheSize           int
 	flushRate           time.Duration
@@ -70,6 +72,7 @@ func newLevelDBBackend(
 		batchSize:           defaultBatchSize,
 		flushRate:           defaultFlushRegionRate,
 		batchRegions:        make(map[string]*metapb.Region, defaultBatchSize),
+		butchBuckets:        make(map[string]*metapb.Buckets, defaultBatchSize),
 		flushTime:           time.Now().Add(defaultFlushRegionRate),
 		regionStorageCtx:    regionStorageCtx,
 		regionStorageCancel: regionStorageCancel,
@@ -146,8 +149,13 @@ func (lb *levelDBBackend) flushLocked() error {
 	if err := lb.saveRegions(lb.batchRegions); err != nil {
 		return err
 	}
+
+	if err := lb.saveBuckets(lb.butchBuckets); err != nil {
+		return err
+	}
 	lb.cacheSize = 0
 	lb.batchRegions = make(map[string]*metapb.Region, lb.batchSize)
+	lb.butchBuckets = make(map[string]*metapb.Buckets, lb.batchSize)
 	return nil
 }
 
@@ -156,6 +164,37 @@ func (lb *levelDBBackend) saveRegions(regions map[string]*metapb.Region) error {
 
 	for key, r := range regions {
 		value, err := proto.Marshal(r)
+		if err != nil {
+			return errs.ErrProtoMarshal.Wrap(err).GenWithStackByCause()
+		}
+		batch.Put([]byte(key), value)
+	}
+
+	if err := lb.Base.(*kv.LevelDBKV).Write(batch, nil); err != nil {
+		return errs.ErrLevelDBWrite.Wrap(err).GenWithStackByCause()
+	}
+	return nil
+}
+
+// SaveBucket saves the bucket to the backend if it should be .
+func (lb *levelDBBackend) SaveBucket(buckets *metapb.Buckets) error {
+	if buckets == nil {
+		return errors.New("buckets is nil")
+	}
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	lb.butchBuckets[endpoint.BucketPath(buckets.GetRegionId())] = buckets
+	return nil
+}
+
+func (lb *levelDBBackend) DeleteBucket(buckets *metapb.Buckets) error {
+	return lb.Remove(endpoint.BucketPath(buckets.GetRegionId()))
+}
+
+func (lb *levelDBBackend) saveBuckets(buckets map[string]*metapb.Buckets) error {
+	batch := new(leveldb.Batch)
+	for key, bucket := range buckets {
+		value, err := proto.Marshal(bucket)
 		if err != nil {
 			return errs.ErrProtoMarshal.Wrap(err).GenWithStackByCause()
 		}

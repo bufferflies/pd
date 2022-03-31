@@ -31,6 +31,7 @@ type BasicCluster struct {
 	sync.RWMutex
 	Stores  *StoresInfo
 	Regions *RegionsInfo
+	Buckets *BucketsInfo
 }
 
 // NewBasicCluster creates a BasicCluster.
@@ -38,7 +39,15 @@ func NewBasicCluster() *BasicCluster {
 	return &BasicCluster{
 		Stores:  NewStoresInfo(),
 		Regions: NewRegionsInfo(),
+		Buckets: NewBucketsInfo(),
 	}
+}
+
+// GetBuckets returns the buckets of the given buckets.
+func (bc *BasicCluster) GetBuckets(regionID uint64) *metapb.Buckets {
+	bc.RLock()
+	defer bc.RUnlock()
+	return bc.Buckets.GetByRegionID(regionID)
 }
 
 // GetStores returns all Stores in the cluster.
@@ -365,6 +374,14 @@ func isRegionRecreated(region *RegionInfo) bool {
 	return region.GetRegionEpoch().GetVersion() == 1 && region.GetRegionEpoch().GetConfVer() == 1 && (len(region.GetStartKey()) != 0 || len(region.GetEndKey()) != 0)
 }
 
+// PutBucket puts a buckets
+func (bc *BasicCluster) PutBuckets(buckets *metapb.Buckets) []*metapb.Buckets {
+	bc.Lock()
+	defer bc.Unlock()
+	bc.Buckets.SetBuckets(buckets)
+	return nil
+}
+
 // PreCheckPutRegion checks if the region is valid to put.
 func (bc *BasicCluster) PreCheckPutRegion(region *RegionInfo) (*RegionInfo, error) {
 	origin, overlaps := bc.getRelevantRegions(region)
@@ -451,6 +468,12 @@ func (bc *BasicCluster) GetOverlaps(region *RegionInfo) []*RegionInfo {
 	bc.RLock()
 	defer bc.RUnlock()
 	return bc.Regions.GetOverlaps(region)
+}
+
+// BucketSetInformer
+type BucketSetInformer interface {
+	GetBucketByRegionID(regionID uint64) *metapb.Buckets
+	GetBucketByKey(key []byte) *metapb.Buckets
 }
 
 // RegionSetInformer provides access to a shared informer of regions.

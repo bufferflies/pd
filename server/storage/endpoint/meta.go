@@ -38,6 +38,7 @@ type MetaStorage interface {
 	LoadStores(f func(store *core.StoreInfo)) error
 	DeleteStore(store *metapb.Store) error
 	RegionStorage
+	BucketStorage
 }
 
 // RegionStorage defines the storage operations on the Region meta info.
@@ -47,6 +48,16 @@ type RegionStorage interface {
 	LoadRegionsOnce(ctx context.Context, f func(region *core.RegionInfo) []*core.RegionInfo) error
 	SaveRegion(region *metapb.Region) error
 	DeleteRegion(region *metapb.Region) error
+	Flush() error
+	Close() error
+}
+
+type BucketStorage interface {
+	LoadBucket(RegionID uint64, bucket *metapb.Buckets) (ok bool, err error)
+	LoadBuckets(ctx context.Context, f func(buckets *metapb.Buckets) []*metapb.Buckets) error
+	LoadBucketsOnce(ctx context.Context, f func(buckets *metapb.Buckets) []*metapb.Buckets) error
+	SaveBucket(bucket *metapb.Buckets) error
+	DeleteBucket(bucket *metapb.Buckets) error
 	Flush() error
 	Close() error
 }
@@ -230,9 +241,94 @@ func (se *StorageEndpoint) SaveRegion(region *metapb.Region) error {
 	return se.Save(RegionPath(region.GetId()), string(value))
 }
 
+// LoadBucket loads one buckets from storage.
+func (se *StorageEndpoint) LoadBucket(regionID uint64, buckets *metapb.Buckets) (ok bool, err error) {
+	value, err := se.Load(BucketPath(regionID))
+	if err != nil {
+		return false, err
+	}
+	if len(value) == 0 {
+		return false, nil
+	}
+	err = proto.Unmarshal([]byte(value), buckets)
+	if err != nil {
+		return true, errs.ErrProtoUnmarshal.Wrap(err).GenWithStackByArgs()
+	}
+	return true, nil
+}
+
+// LoadBuckets loads all buckets from storage to *metapb.Buckets
+func (se *StorageEndpoint) LoadBuckets(ctx context.Context, f func(buckets *metapb.Buckets) []*metapb.Buckets) error {
+	nextID := uint64(0)
+	endKey := BucketPath(math.MaxUint64)
+	// Since the region key may be very long, using a larger rangeLimit will cause
+	// the message packet to exceed the grpc message size limit (4MB). Here we use
+	// a variable rangeLimit to work around.
+	rangeLimit := MaxKVRangeLimit
+	for {
+		failpoint.Inject("slowLoadRegion", func() {
+			rangeLimit = 1
+			time.Sleep(time.Second)
+		})
+		startKey := BucketPath(nextID)
+		_, res, err := se.LoadRange(startKey, endKey, rangeLimit)
+		if err != nil {
+			if rangeLimit /= 2; rangeLimit >= MinKVRangeLimit {
+				continue
+			}
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		for _, r := range res {
+			buckets := &metapb.Buckets{}
+			if err := buckets.Unmarshal([]byte(r)); err != nil {
+				return errs.ErrProtoUnmarshal.Wrap(err).GenWithStackByArgs()
+			}
+
+			nextID = buckets.GetRegionId() + 1
+			overlaps := f(buckets)
+			for _, item := range overlaps {
+				if err := se.DeleteBucket(item); err != nil {
+					return err
+				}
+			}
+		}
+
+		if len(res) < rangeLimit {
+			return nil
+		}
+	}
+
+	return nil
+}
+
 // DeleteRegion deletes one region from storage.
 func (se *StorageEndpoint) DeleteRegion(region *metapb.Region) error {
 	return se.Remove(RegionPath(region.GetId()))
+}
+
+// SaveBucket saves one bucket to storage.
+func (se *StorageEndpoint) SaveBucket(buckets *metapb.Buckets) error {
+	value, err := proto.Marshal(buckets)
+	if err != nil {
+		return errs.ErrProtoMarshal.Wrap(err).GenWithStackByArgs()
+	}
+	return se.Save(BucketPath(buckets.GetRegionId()), string(value))
+}
+
+// LoadBucketsOnce loads all buckets from storage to *metapb.Buckets.
+func (se *StorageEndpoint) LoadBucketsOnce(ctx context.Context, f func(buckets *metapb.Buckets) []*metapb.Buckets) error {
+	return se.LoadBuckets(ctx, f)
+}
+
+// DeleteBucket deletes a bucket from storage.
+func (se *StorageEndpoint) DeleteBucket(buckets *metapb.Buckets) error {
+	return se.Remove(BucketPath(buckets.GetRegionId()))
 }
 
 // Flush flushes the pending data to the underlying storage backend.

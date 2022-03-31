@@ -70,6 +70,11 @@ func RegionPath(regionID uint64) string {
 	return path.Join(clusterPath, "r", fmt.Sprintf("%020d", regionID))
 }
 
+// BucketPath returns the buckets info with the given region ID.
+func BucketPath(regionID uint64) string {
+	return path.Join(clusterPath, "b", fmt.Sprintf("%020d", regionID))
+}
+
 func ruleKeyPath(ruleKey string) string {
 	return path.Join(rulesPath, ruleKey)
 }
