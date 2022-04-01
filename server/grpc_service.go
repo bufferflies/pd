@@ -941,12 +941,17 @@ func (s *GrpcServer) GetRegion(ctx context.Context, request *pdpb.GetRegionReque
 	if region == nil {
 		return &pdpb.GetRegionResponse{Header: s.header()}, nil
 	}
+	var buckets *metapb.Buckets
+	if request.GetNeedBuckets() {
+		buckets = region.GetBuckets()
+	}
 	return &pdpb.GetRegionResponse{
 		Header:       s.header(),
 		Region:       region.GetMeta(),
 		Leader:       region.GetLeader(),
 		DownPeers:    region.GetDownPeers(),
 		PendingPeers: region.GetPendingPeers(),
+		Buckets:      buckets,
 	}, nil
 }
 
@@ -970,12 +975,17 @@ func (s *GrpcServer) GetPrevRegion(ctx context.Context, request *pdpb.GetRegionR
 	if region == nil {
 		return &pdpb.GetRegionResponse{Header: s.header()}, nil
 	}
+	var buckets *metapb.Buckets
+	if request.GetNeedBuckets() {
+		buckets = region.GetBuckets()
+	}
 	return &pdpb.GetRegionResponse{
 		Header:       s.header(),
 		Region:       region.GetMeta(),
 		Leader:       region.GetLeader(),
 		DownPeers:    region.GetDownPeers(),
 		PendingPeers: region.GetPendingPeers(),
+		Buckets:      buckets,
 	}, nil
 }
 
@@ -998,12 +1008,17 @@ func (s *GrpcServer) GetRegionByID(ctx context.Context, request *pdpb.GetRegionB
 	if region == nil {
 		return &pdpb.GetRegionResponse{Header: s.header()}, nil
 	}
+	var buckets *metapb.Buckets
+	if request.GetNeedBuckets() {
+		buckets = region.GetBuckets()
+	}
 	return &pdpb.GetRegionResponse{
 		Header:       s.header(),
 		Region:       region.GetMeta(),
 		Leader:       region.GetLeader(),
 		DownPeers:    region.GetDownPeers(),
 		PendingPeers: region.GetPendingPeers(),
+		Buckets:      buckets,
 	}, nil
 }
 
