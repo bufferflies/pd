@@ -135,7 +135,7 @@ func (s *testRegionSuite) TestRegion(c *C) {
 		Keys:     [][]byte{[]byte("a"), []byte("b")},
 		Version:  1,
 	}
-	r.UpdateBuckets(buckets)
+	r.UpdateBuckets(buckets, r.GetBuckets())
 	mustRegionHeartbeat(c, s.svr, r)
 	url := fmt.Sprintf("%s/region/id/%d", s.urlPrefix, r.GetID())
 	r1 := &RegionInfo{}
