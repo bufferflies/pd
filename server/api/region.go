@@ -165,11 +165,13 @@ func InitRegion(r *core.RegionInfo, s *RegionInfo) *RegionInfo {
 	s.ReplicationStatus = fromPBReplicationStatus(r.GetReplicationStatus())
 
 	keys := r.GetBuckets().GetKeys()
-	buckets := make([]string, len(keys))
-	for i, v := range keys {
-		buckets[i] = core.HexRegionKeyStr(v)
+
+	if len(keys) > 0 {
+		s.Buckets = make([]string, len(keys))
+		for i, key := range keys {
+			s.Buckets[i] = core.HexRegionKeyStr(key)
+		}
 	}
-	s.Buckets = buckets
 	return s
 }
 
