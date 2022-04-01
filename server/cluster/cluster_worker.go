@@ -224,10 +224,7 @@ func (c *RaftCluster) HandleBatchReportSplit(request *pdpb.ReportBatchSplitReque
 	return &pdpb.ReportBatchSplitResponse{}, nil
 }
 
-// HandleBucketHeartbeat processes RegionInfo reports from client
-func (c *RaftCluster) HandleBucketHeartbeat(buckets *metapb.Buckets) error {
-	if err := c.processBucketHeartbeat(buckets); err != nil {
-		return err
-	}
-	return nil
+// HandleReportBuckets processes RegionInfo reports from client
+func (c *RaftCluster) HandleReportBuckets(buckets *metapb.Buckets) error {
+	return c.processReportBuckets(buckets)
 }

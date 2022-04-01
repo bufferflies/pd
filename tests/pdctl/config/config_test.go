@@ -186,6 +186,12 @@ func (s *configTestSuite) TestConfig(c *C) {
 	c.Assert(json.Unmarshal(output, &labelPropertyCfg), IsNil)
 	c.Assert(labelPropertyCfg, DeepEquals, svr.GetLabelProperty())
 
+	// config set min-resolved-ts-persistence-interval <value>
+	args = []string{"-u", pdAddr, "config", "set", "min-resolved-ts-persistence-interval", "1s"}
+	_, err = pdctl.ExecuteCommand(cmd, args...)
+	c.Assert(err, IsNil)
+	c.Assert(svr.GetPDServerConfig().MinResolvedTSPersistenceInterval, Equals, typeutil.NewDuration(time.Second))
+
 	// test config read and write
 	testItems := []testItem{
 		{"leader-schedule-limit", uint64(64), func(scheduleConfig *config.ScheduleConfig) interface{} {
@@ -582,6 +588,11 @@ func (s *configTestSuite) TestReplicationMode(c *C) {
 	_, err = pdctl.ExecuteCommand(cmd, "-u", pdAddr, "config", "set", "replication-mode", "dr-auto-sync", "primary-replicas", "5")
 	c.Assert(err, IsNil)
 	conf.DRAutoSync.PrimaryReplicas = 5
+	check()
+
+	_, err = pdctl.ExecuteCommand(cmd, "-u", pdAddr, "config", "set", "replication-mode", "dr-auto-sync", "wait-store-timeout", "10m")
+	c.Assert(err, IsNil)
+	conf.DRAutoSync.WaitStoreTimeout = typeutil.NewDuration(time.Minute * 10)
 	check()
 }
 

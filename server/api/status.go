@@ -27,6 +27,7 @@ type statusHandler struct {
 	rd  *render.Render
 }
 
+// NOTE: This type is exported by HTTP API. Please pay more attention when modifying it.
 type status struct {
 	BuildTS        string `json:"build_ts"`
 	Version        string `json:"version"`
@@ -45,7 +46,7 @@ func newStatusHandler(svr *server.Server, rd *render.Render) *statusHandler {
 // @Produce json
 // @Success 200 {object} status
 // @Router /status [get]
-func (h *statusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *statusHandler) GetPDStatus(w http.ResponseWriter, r *http.Request) {
 	version := status{
 		BuildTS:        versioninfo.PDBuildTS,
 		GitHash:        versioninfo.PDGitHash,

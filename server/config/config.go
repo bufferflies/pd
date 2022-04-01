@@ -48,6 +48,7 @@ import (
 )
 
 // Config is the pd server configuration.
+// NOTE: This type is exported by HTTP API. Please pay more attention when modifying it.
 type Config struct {
 	flagSet *flag.FlagSet
 
@@ -227,12 +228,13 @@ const (
 
 	defaultLeaderPriorityCheckInterval = time.Minute
 
-	defaultUseRegionStorage  = true
-	defaultTraceRegionFlow   = true
-	defaultFlowRoundByDigit  = 3 // KB
-	maxTraceFlowRoundByDigit = 5 // 0.1 MB
-	defaultMaxResetTSGap     = 24 * time.Hour
-	defaultKeyType           = "table"
+	defaultUseRegionStorage                 = true
+	defaultTraceRegionFlow                  = true
+	defaultFlowRoundByDigit                 = 3 // KB
+	maxTraceFlowRoundByDigit                = 5 // 0.1 MB
+	defaultMaxResetTSGap                    = 24 * time.Hour
+	defaultMinResolvedTSPersistenceInterval = 0
+	defaultKeyType                          = "table"
 
 	defaultStrictlyMatchLabel   = false
 	defaultEnablePlacementRules = true
@@ -250,6 +252,8 @@ const (
 	DefaultTSOUpdatePhysicalInterval = 50 * time.Millisecond
 	maxTSOUpdatePhysicalInterval     = 10 * time.Second
 	minTSOUpdatePhysicalInterval     = 50 * time.Millisecond
+
+	defaultLogFormat = "text"
 )
 
 // Special keys for Labels
@@ -593,6 +597,10 @@ func (c *Config) Adjust(meta *toml.MetaData, reloading bool) error {
 
 	c.Security.Encryption.Adjust()
 
+	if len(c.Log.Format) == 0 {
+		c.Log.Format = defaultLogFormat
+	}
+
 	return nil
 }
 
@@ -623,6 +631,7 @@ func (c *Config) configFromFile(path string) (*toml.MetaData, error) {
 }
 
 // ScheduleConfig is the schedule configuration.
+// NOTE: This type is exported by HTTP API. Please pay more attention when modifying it.
 type ScheduleConfig struct {
 	// If the snapshot count of one store is greater than this value,
 	// it will never be used as a source or target store.
@@ -1007,6 +1016,7 @@ func IsDefaultScheduler(typ string) bool {
 }
 
 // ReplicationConfig is the replication configuration.
+// NOTE: This type is exported by HTTP API. Please pay more attention when modifying it.
 type ReplicationConfig struct {
 	// MaxReplicas is the number of replicas for each region.
 	MaxReplicas uint64 `toml:"max-replicas" json:"max-replicas"`
@@ -1078,6 +1088,7 @@ func (c *ReplicationConfig) adjust(meta *configMetaData) error {
 }
 
 // PDServerConfig is the configuration for pd server.
+// NOTE: This type is exported by HTTP API. Please pay more attention when modifying it.
 type PDServerConfig struct {
 	// UseRegionStorage enables the independent region storage.
 	UseRegionStorage bool `toml:"use-region-storage" json:"use-region-storage,string"`
@@ -1098,6 +1109,8 @@ type PDServerConfig struct {
 	TraceRegionFlow bool `toml:"trace-region-flow" json:"trace-region-flow,string,omitempty"`
 	// FlowRoundByDigit used to discretization processing flow information.
 	FlowRoundByDigit int `toml:"flow-round-by-digit" json:"flow-round-by-digit"`
+	// MinResolvedTSPersistenceInterval is the interval to save the min resolved ts.
+	MinResolvedTSPersistenceInterval typeutil.Duration `toml:"min-resolved-ts-persistence-interval" json:"min-resolved-ts-persistence-interval"`
 }
 
 func (c *PDServerConfig) adjust(meta *configMetaData) error {
@@ -1119,6 +1132,9 @@ func (c *PDServerConfig) adjust(meta *configMetaData) error {
 	}
 	if !meta.IsDefined("flow-round-by-digit") {
 		adjustInt(&c.FlowRoundByDigit, defaultFlowRoundByDigit)
+	}
+	if !meta.IsDefined("min-resolved-ts-persistence-interval") {
+		adjustDuration(&c.MinResolvedTSPersistenceInterval, defaultMinResolvedTSPersistenceInterval)
 	}
 	c.migrateConfigurationFromFile(meta)
 	return c.Validate()
@@ -1185,6 +1201,7 @@ type StoreLabel struct {
 const RejectLeader = "reject-leader"
 
 // LabelPropertyConfig is the config section to set properties to store labels.
+// NOTE: This type is exported by HTTP API. Please pay more attention when modifying it.
 type LabelPropertyConfig map[string][]StoreLabel
 
 // Clone returns a cloned label property configuration.
@@ -1326,6 +1343,7 @@ func (c *DashboardConfig) adjust(meta *configMetaData) {
 }
 
 // ReplicationModeConfig is the configuration for the replication policy.
+// NOTE: This type is exported by HTTP API. Please pay more attention when modifying it.
 type ReplicationModeConfig struct {
 	ReplicationMode string                      `toml:"replication-mode" json:"replication-mode"` // can be 'dr-auto-sync' or 'majority', default value is 'majority'
 	DRAutoSync      DRAutoSyncReplicationConfig `toml:"dr-auto-sync" json:"dr-auto-sync"`         // used when ReplicationMode is 'dr-auto-sync'

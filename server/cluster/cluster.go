@@ -17,6 +17,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"sync"
@@ -29,7 +30,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/log"
-	"github.com/tikv/pd/pkg/component"
 	"github.com/tikv/pd/pkg/errs"
 	"github.com/tikv/pd/pkg/etcdutil"
 	"github.com/tikv/pd/pkg/logutil"
@@ -53,7 +53,14 @@ import (
 	"go.uber.org/zap"
 )
 
+// backgroundJobInterval is the interval to run background jobs.
 var backgroundJobInterval = 10 * time.Second
+
+// regionLabelGCInterval is the interval to run region-label's GC work.
+const regionLabelGCInterval = time.Hour
+
+// DefaultMinResolvedTSPersistenceInterval is the default value of min resolved ts persistence interval.
+var DefaultMinResolvedTSPersistenceInterval = 10 * time.Second
 
 const (
 	clientTimeout              = 3 * time.Second
@@ -97,12 +104,14 @@ type RaftCluster struct {
 	clusterID uint64
 
 	// cached cluster info
-	core    *core.BasicCluster
-	meta    *metapb.Cluster
-	opt     *config.PersistOptions
-	storage storage.Storage
-	id      id.Allocator
-	limiter *StoreLimiter
+	core               *core.BasicCluster
+	meta               *metapb.Cluster
+	opt                *config.PersistOptions
+	storeConfigManager *config.StoreConfigManager
+	storage            storage.Storage
+	id                 id.Allocator
+	limiter            *StoreLimiter
+	minResolvedTS      uint64
 
 	changedRegions chan *core.RegionInfo
 
@@ -121,13 +130,11 @@ type RaftCluster struct {
 
 	replicationMode *replication.ModeManager
 
-	// Deprecated: we do not use it anymore. See https://github.com/tikv/tikv/issues/11472.
-	componentManager *component.Manager
-
 	unsafeRecoveryController *unsafeRecoveryController
 }
 
 // Status saves some state information.
+// NOTE: This type is exported by HTTP API. Please pay more attention when modifying it.
 type Status struct {
 	RaftBootstrapTime time.Time `json:"raft_bootstrap_time,omitempty"`
 	IsInitialized     bool      `json:"is_initialized"`
@@ -135,15 +142,22 @@ type Status struct {
 }
 
 // NewRaftCluster create a new cluster.
-func NewRaftCluster(ctx context.Context, clusterID uint64, regionSyncer *syncer.RegionSyncer, etcdClient *clientv3.Client, httpClient *http.Client) *RaftCluster {
+func NewRaftCluster(ctx context.Context, clusterID uint64, regionSyncer *syncer.RegionSyncer, etcdClient *clientv3.Client,
+	httpClient *http.Client, manager *config.StoreConfigManager) *RaftCluster {
 	return &RaftCluster{
-		serverCtx:    ctx,
-		running:      false,
-		clusterID:    clusterID,
-		regionSyncer: regionSyncer,
-		httpClient:   httpClient,
-		etcdClient:   etcdClient,
+		serverCtx:          ctx,
+		running:            false,
+		clusterID:          clusterID,
+		regionSyncer:       regionSyncer,
+		httpClient:         httpClient,
+		etcdClient:         etcdClient,
+		storeConfigManager: manager,
 	}
+}
+
+// GetStoreConfig returns the store config.
+func (c *RaftCluster) GetStoreConfig() *config.StoreConfig {
+	return c.storeConfigManager.GetStoreConfig()
 }
 
 // LoadClusterStatus loads the cluster status.
@@ -239,13 +253,7 @@ func (c *RaftCluster) Start(s Server) error {
 		}
 	}
 
-	c.regionLabeler, err = labeler.NewRegionLabeler(c.storage)
-	if err != nil {
-		return err
-	}
-
-	c.componentManager = component.NewManager(c.storage)
-	_, err = c.storage.LoadComponent(&c.componentManager)
+	c.regionLabeler, err = labeler.NewRegionLabeler(c.ctx, c.storage, regionLabelGCInterval)
 	if err != nil {
 		return err
 	}
@@ -260,7 +268,7 @@ func (c *RaftCluster) Start(s Server) error {
 	c.limiter = NewStoreLimiter(s.GetPersistOptions())
 	c.unsafeRecoveryController = newUnsafeRecoveryController(cluster)
 
-	c.wg.Add(5)
+	c.wg.Add(6)
 	go c.runCoordinator()
 	failpoint.Inject("highFrequencyClusterJobs", func() {
 		backgroundJobInterval = 100 * time.Microsecond
@@ -269,6 +277,7 @@ func (c *RaftCluster) Start(s Server) error {
 	go c.runStatsBackgroundJobs()
 	go c.syncRegions()
 	go c.runReplicationMode()
+	go c.runMinResolvedTSJob()
 	c.running = true
 
 	return nil
@@ -300,13 +309,8 @@ func (c *RaftCluster) LoadClusterInfo() (*RaftCluster, error) {
 	if err := c.storage.LoadRegionsOnce(c.ctx, c.core.CheckAndPutRegion); err != nil {
 		return nil, err
 	}
-
-	if err := c.storage.LoadBucketsOnce(c.ctx, c.core.PutBuckets); err != nil {
-		return nil, err
-	}
-
-	log.Info("load regions and buckets",
-		zap.Int("region-count", c.core.GetRegionCount()),
+	log.Info("load regions",
+		zap.Int("count", c.core.GetRegionCount()),
 		zap.Duration("cost", time.Since(start)),
 	)
 	for _, store := range c.GetStores() {
@@ -332,7 +336,6 @@ func (c *RaftCluster) runBackgroundJobs(interval time.Duration) {
 		case <-ticker.C:
 			c.checkStores()
 			c.collectMetrics()
-			c.coordinator.opController.PruneHistory()
 		}
 	}
 }
@@ -606,10 +609,33 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 	return nil
 }
 
-// processBucketHeartbeat update the bucket information.
-func (c *RaftCluster) processBucketHeartbeat(buckets *metapb.Buckets) error {
-	_, err := c.core.PutBuckets(buckets)
-	return err
+// processReportBuckets update the bucket information.
+func (c *RaftCluster) processReportBuckets(buckets *metapb.Buckets) error {
+	region := c.core.GetRegion(buckets.GetRegionId())
+	if region == nil {
+		bucketEventCounter.WithLabelValues("region_cache_miss").Inc()
+		return errors.Errorf("region %v not found", buckets.GetRegionId())
+	}
+	// use CAS to update the bucket information.
+	// the two request(A:3,B:2) get the same region and need to update the buckets.
+	// the A will pass the check and set the version to 3, the B will fail because the region.bucket has changed.
+	// the retry should keep the old version and the new version will be set to the region.bucket, like two requests (A:2,B:3).
+	for retry := 0; retry < 3; retry++ {
+		old := region.GetBuckets()
+		// region should not update if the version of the buckets is less than the old one.
+		if old != nil && buckets.GetVersion() <= old.GetVersion() {
+			bucketEventCounter.WithLabelValues("version_not_match").Inc()
+			return nil
+		}
+		failpoint.Inject("concurrentBucketHeartbeat", func() {
+			time.Sleep(500 * time.Millisecond)
+		})
+		if ok := region.UpdateBuckets(buckets, old); ok {
+			return nil
+		}
+	}
+	bucketEventCounter.WithLabelValues("update_failed").Inc()
+	return nil
 }
 
 var regionGuide = core.GenerateRegionGuideFunc(true)
@@ -626,7 +652,7 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 	if err != nil {
 		return err
 	}
-	region.CorrectApproximateSize(origin)
+	region.Inherit(origin)
 
 	hotStat.CheckWriteAsync(statistics.NewCheckExpiredItemTask(region))
 	hotStat.CheckReadAsync(statistics.NewCheckExpiredItemTask(region))
@@ -714,12 +740,6 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 				log.Error("failed to save region to storage",
 					zap.Uint64("region-id", region.GetID()),
 					logutil.ZapRedactStringer("region-meta", core.RegionToHexMeta(region.GetMeta())),
-					errs.ZapError(err))
-			}
-
-			if err := storage.SaveBucket(c.core.GetBuckets(region.GetID())); err != nil {
-				log.Error("failed to save bucket to storage",
-					zap.Uint64("region-id", region.GetID()),
 					errs.ZapError(err))
 			}
 			regionEventCounter.WithLabelValues("update_kv").Inc()
@@ -889,6 +909,11 @@ func (c *RaftCluster) GetStores() []*core.StoreInfo {
 	return c.core.GetStores()
 }
 
+// GetLeaderStoreByRegionID returns the leader store of the given region.
+func (c *RaftCluster) GetLeaderStoreByRegionID(regionID uint64) *core.StoreInfo {
+	return c.core.GetLeaderStoreByRegionID(regionID)
+}
+
 // GetStore gets store from cluster.
 func (c *RaftCluster) GetStore(storeID uint64) *core.StoreInfo {
 	return c.core.GetStore(storeID)
@@ -949,7 +974,7 @@ func (c *RaftCluster) putStoreImpl(store *metapb.Store, force bool) error {
 	// Store address can not be the same as other stores.
 	for _, s := range c.GetStores() {
 		// It's OK to start a new store on the same address if the old store has been removed or physically destroyed.
-		if s.IsTombstone() || s.IsPhysicallyDestroyed() {
+		if s.IsRemoved() || s.IsPhysicallyDestroyed() {
 			continue
 		}
 		if s.GetID() != store.GetId() && s.GetAddress() == store.GetAddress() {
@@ -1034,12 +1059,12 @@ func (c *RaftCluster) RemoveStore(storeID uint64, physicallyDestroyed bool) erro
 	}
 
 	// Remove an offline store should be OK, nothing to do.
-	if store.IsOffline() && store.IsPhysicallyDestroyed() == physicallyDestroyed {
+	if store.IsRemoving() && store.IsPhysicallyDestroyed() == physicallyDestroyed {
 		return nil
 	}
 
-	if store.IsTombstone() {
-		return errs.ErrStoreTombstone.FastGenByArgs(storeID)
+	if store.IsRemoved() {
+		return errs.ErrStoreRemoved.FastGenByArgs(storeID)
 	}
 
 	if store.IsPhysicallyDestroyed() {
@@ -1072,11 +1097,11 @@ func (c *RaftCluster) BuryStore(storeID uint64, forceBury bool) error {
 	}
 
 	// Bury a tombstone store should be OK, nothing to do.
-	if store.IsTombstone() {
+	if store.IsRemoved() {
 		return nil
 	}
 
-	if store.IsUp() {
+	if store.IsPreparing() || store.IsServing() {
 		if !forceBury {
 			return errs.ErrStoreIsUp.FastGenByArgs()
 		} else if !store.IsDisconnected() {
@@ -1132,15 +1157,15 @@ func (c *RaftCluster) UpStore(storeID uint64) error {
 		return errs.ErrStoreNotFound.FastGenByArgs(storeID)
 	}
 
-	if store.IsTombstone() {
-		return errs.ErrStoreTombstone.FastGenByArgs(storeID)
+	if store.IsRemoved() {
+		return errs.ErrStoreRemoved.FastGenByArgs(storeID)
 	}
 
 	if store.IsPhysicallyDestroyed() {
 		return errs.ErrStoreDestroyed.FastGenByArgs(storeID)
 	}
 
-	if store.IsUp() {
+	if store.IsPreparing() || store.IsServing() {
 		return nil
 	}
 
@@ -1190,11 +1215,11 @@ func (c *RaftCluster) checkStores() {
 	stores := c.GetStores()
 	for _, store := range stores {
 		// the store has already been tombstone
-		if store.IsTombstone() {
+		if store.IsRemoved() {
 			continue
 		}
 
-		if store.IsUp() {
+		if store.IsPreparing() || store.IsServing() {
 			if !store.IsLowSpace(c.opt.GetLowSpaceRatio()) {
 				upStoreCount++
 			}
@@ -1233,7 +1258,7 @@ func (c *RaftCluster) RemoveTombStoneRecords() error {
 	defer c.Unlock()
 
 	for _, store := range c.GetStores() {
-		if store.IsTombstone() {
+		if store.IsRemoved() {
 			if c.core.GetStoreRegionCount(store.GetID()) > 0 {
 				log.Warn("skip removing tombstone", zap.Stringer("store", store.GetMeta()))
 				continue
@@ -1399,7 +1424,7 @@ func (c *RaftCluster) onStoreVersionChangeLocked() {
 	var minVersion *semver.Version
 	stores := c.GetStores()
 	for _, s := range stores {
-		if s.IsTombstone() {
+		if s.IsRemoved() {
 			continue
 		}
 		v := versioninfo.MustParseVersion(s.GetVersion())
@@ -1455,13 +1480,6 @@ func (c *RaftCluster) GetMergeChecker() *checker.MergeChecker {
 	c.RLock()
 	defer c.RUnlock()
 	return c.coordinator.checkers.GetMergeChecker()
-}
-
-// GetComponentManager returns component manager.
-func (c *RaftCluster) GetComponentManager() *component.Manager {
-	c.RLock()
-	defer c.RUnlock()
-	return c.componentManager
 }
 
 // GetStoresLoads returns load stats of all stores.
@@ -1682,6 +1700,98 @@ func (c *RaftCluster) RemoveStoreLimit(storeID uint64) {
 		time.Sleep(persistLimitWaitTime)
 	}
 	log.Error("persist store limit meet error", errs.ZapError(err))
+}
+
+// SetMinResolvedTS sets up a store with min resolved ts.
+func (c *RaftCluster) SetMinResolvedTS(storeID, minResolvedTS uint64) error {
+	c.Lock()
+	defer c.Unlock()
+
+	store := c.GetStore(storeID)
+	if store == nil {
+		return errs.ErrStoreNotFound.FastGenByArgs(storeID)
+	}
+
+	newStore := store.Clone(
+		core.SetMinResolvedTS(minResolvedTS),
+	)
+
+	return c.putStoreLocked(newStore)
+}
+
+func (c *RaftCluster) checkAndUpdateMinResolvedTS() (uint64, bool) {
+	c.Lock()
+	defer c.Unlock()
+
+	if !c.isInitialized() {
+		return math.MaxUint64, false
+	}
+	curMinResolvedTS := uint64(math.MaxUint64)
+	for _, s := range c.GetStores() {
+		if !core.IsAvailableForMinResolvedTS(s) {
+			continue
+		}
+		if curMinResolvedTS > s.GetMinResolvedTS() {
+			curMinResolvedTS = s.GetMinResolvedTS()
+		}
+	}
+	if curMinResolvedTS == math.MaxUint64 || curMinResolvedTS <= c.minResolvedTS {
+		return c.minResolvedTS, false
+	}
+	c.minResolvedTS = curMinResolvedTS
+	return c.minResolvedTS, true
+}
+
+func (c *RaftCluster) runMinResolvedTSJob() {
+	defer logutil.LogPanic()
+	defer c.wg.Done()
+
+	interval := c.opt.GetMinResolvedTSPersistenceInterval()
+	if interval == 0 {
+		interval = DefaultMinResolvedTSPersistenceInterval
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	c.loadMinResolvedTS()
+	for {
+		select {
+		case <-c.ctx.Done():
+			log.Info("min resolved ts background jobs has been stopped")
+			return
+		case <-ticker.C:
+			interval = c.opt.GetMinResolvedTSPersistenceInterval()
+			if interval != 0 {
+				if current, needPersist := c.checkAndUpdateMinResolvedTS(); needPersist {
+					c.storage.SaveMinResolvedTS(current)
+				}
+			} else {
+				interval = DefaultMinResolvedTSPersistenceInterval
+			}
+			ticker.Reset(interval)
+		}
+	}
+}
+
+func (c *RaftCluster) loadMinResolvedTS() {
+	minResolvedTS, err := c.storage.LoadMinResolvedTS()
+	if err != nil {
+		log.Error("load min resolved ts meet error", errs.ZapError(err))
+		return
+	}
+	c.Lock()
+	defer c.Unlock()
+	c.minResolvedTS = minResolvedTS
+}
+
+// GetMinResolvedTS returns the min resolved ts of the cluster.
+func (c *RaftCluster) GetMinResolvedTS() uint64 {
+	c.RLock()
+	defer c.RUnlock()
+	if !c.isInitialized() {
+		return math.MaxUint64
+	}
+	return c.minResolvedTS
 }
 
 // SetStoreLimit sets a store limit for a given type and rate.

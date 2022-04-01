@@ -33,6 +33,7 @@ import (
 type ClusterInformer interface {
 	GetBasicCluster() *core.BasicCluster
 	GetOpts() *config.PersistOptions
+	GetStoreConfig() *config.StoreConfig
 	GetRuleManager() *placement.RuleManager
 	GetAllocator() id.Allocator
 }
@@ -598,7 +599,7 @@ func (b *Builder) preferLeaderRoleAsLeader(targetLeaderStoreID uint64) int {
 
 func (b *Builder) preferUpStoreAsLeader(targetLeaderStoreID uint64) int {
 	store := b.GetBasicCluster().GetStore(targetLeaderStoreID)
-	return typeutil.BoolToInt(store != nil && store.IsUp())
+	return typeutil.BoolToInt(store != nil && (store.IsPreparing() || store.IsServing()))
 }
 
 func (b *Builder) preferCurrentLeader(targetLeaderStoreID uint64) int {
@@ -1034,7 +1035,7 @@ func (b *Builder) planPreferReplaceByNearest(p stepPlan) int {
 func (b *Builder) planPreferUpStoreAsLeader(p stepPlan) int {
 	if p.add != nil {
 		store := b.GetBasicCluster().GetStore(p.leaderBeforeAdd)
-		return typeutil.BoolToInt(store != nil && store.IsUp())
+		return typeutil.BoolToInt(store != nil && (store.IsPreparing() || store.IsServing()))
 	}
 	return 1
 }

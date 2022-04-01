@@ -896,6 +896,7 @@ func (s *testClientSuite) TestGetStore(c *C) {
 	c.Assert(err, IsNil)
 	offlineStore := proto.Clone(store).(*metapb.Store)
 	offlineStore.State = metapb.StoreState_Offline
+	offlineStore.NodeState = metapb.NodeState_Removing
 
 	// Get an offline store should be OK.
 	n, err = s.client.GetStore(context.Background(), store.GetId())
@@ -924,7 +925,7 @@ func (s *testClientSuite) TestGetStore(c *C) {
 	n, err = s.client.GetStore(context.Background(), physicallyDestroyedStoreID)
 	c.Assert(err, IsNil)
 	if n != nil { // store is still offline and physically destroyed
-		c.Assert(n.GetState(), Equals, metapb.StoreState_Offline)
+		c.Assert(n.GetNodeState(), Equals, metapb.NodeState_Removing)
 		c.Assert(n.PhysicallyDestroyed, IsTrue)
 	}
 	// Should return tombstone stores.
@@ -1146,6 +1147,7 @@ func (s *testClientSuite) TestScatterRegion(c *C) {
 	err := s.regionHeartbeat.Send(req)
 	regionsID := []uint64{regionID}
 	c.Assert(err, IsNil)
+	// Test interface `ScatterRegions`.
 	testutil.WaitUntil(c, func() bool {
 		scatterResp, err := s.client.ScatterRegions(context.Background(), regionsID, pd.WithGroup("test"), pd.WithRetry(1))
 		if c.Check(err, NotNil) {
@@ -1160,6 +1162,22 @@ func (s *testClientSuite) TestScatterRegion(c *C) {
 		}
 		return c.Check(resp.GetRegionId(), Equals, regionID) && c.Check(string(resp.GetDesc()), Equals, "scatter-region") && c.Check(resp.GetStatus(), Equals, pdpb.OperatorStatus_RUNNING)
 	}, testutil.WithSleepInterval(1*time.Second))
+
+	// Test interface `ScatterRegion`.
+	// TODO: Deprecate interface `ScatterRegion`.
+	testutil.WaitUntil(c, func() bool {
+		err := s.client.ScatterRegion(context.Background(), regionID)
+		if c.Check(err, NotNil) {
+			fmt.Println(err)
+			return false
+		}
+		resp, err := s.client.GetOperator(context.Background(), regionID)
+		if c.Check(err, NotNil) {
+			return false
+		}
+		return c.Check(resp.GetRegionId(), Equals, regionID) && c.Check(string(resp.GetDesc()), Equals, "scatter-region") && c.Check(resp.GetStatus(), Equals, pdpb.OperatorStatus_RUNNING)
+	}, testutil.WithSleepInterval(1*time.Second))
+
 	c.Succeed()
 }
 

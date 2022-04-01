@@ -21,6 +21,7 @@ import (
 	"github.com/unrolled/render"
 )
 
+// NOTE: This type is exported by HTTP API. Please pay more attention when modifying it.
 type version struct {
 	Version   string `json:"version"`
 	BuildTime string `json:"build_time"`
@@ -42,7 +43,7 @@ func newVersionHandler(rd *render.Render) *versionHandler {
 // @Produce json
 // @Success 200 {object} version
 // @Router /version [get]
-func (h *versionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *versionHandler) GetVersion(w http.ResponseWriter, r *http.Request) {
 	version := &version{
 		Version: versioninfo.PDReleaseVersion,
 	}

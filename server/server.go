@@ -39,6 +39,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/sysutil"
+	"github.com/tikv/pd/pkg/apiutil"
 	"github.com/tikv/pd/pkg/audit"
 	"github.com/tikv/pd/pkg/errs"
 	"github.com/tikv/pd/pkg/etcdutil"
@@ -98,10 +99,11 @@ type Server struct {
 	startTimestamp int64
 
 	// Configs and initial fields.
-	cfg            *config.Config
-	etcdCfg        *embed.Config
-	persistOptions *config.PersistOptions
-	handler        *Handler
+	cfg                *config.Config
+	storeConfigManager *config.StoreConfigManager
+	etcdCfg            *embed.Config
+	persistOptions     *config.PersistOptions
+	handler            *Handler
 
 	ctx              context.Context
 	serverLoopCtx    context.Context
@@ -153,9 +155,12 @@ type Server struct {
 	// the corresponding forwarding TSO channel.
 	tsoDispatcher sync.Map /* Store as map[string]chan *tsoRequest */
 
+	serviceLabels      map[string][]apiutil.AccessPath
+	apiServiceLabelMap map[apiutil.AccessPath]string
+
 	serviceAuditBackendLabels map[string]*audit.BackendLabels
 
-	auditBackend []audit.Backend
+	auditBackends []audit.Backend
 }
 
 // HandlerBuilder builds a server HTTP handler.
@@ -218,8 +223,6 @@ func combineBuilderServerHTTPService(ctx context.Context, svr *Server, serviceBu
 				// Deprecated
 				router.Path("/pd/health").Handler(handler)
 				// Deprecated
-				router.Path("/pd/diagnose").Handler(handler)
-				// Deprecated
 				router.Path("/pd/ping").Handler(handler)
 			}
 		}
@@ -236,19 +239,24 @@ func CreateServer(ctx context.Context, cfg *config.Config, serviceBuilders ...Ha
 	rand.Seed(time.Now().UnixNano())
 
 	s := &Server{
-		cfg:               cfg,
-		persistOptions:    config.NewPersistOptions(cfg),
-		member:            &member.Member{},
-		ctx:               ctx,
-		startTimestamp:    time.Now().Unix(),
-		DiagnosticsServer: sysutil.NewDiagnosticsServer(cfg.Log.File.Filename),
+		cfg:                cfg,
+		persistOptions:     config.NewPersistOptions(cfg),
+		member:             &member.Member{},
+		ctx:                ctx,
+		startTimestamp:     time.Now().Unix(),
+		DiagnosticsServer:  sysutil.NewDiagnosticsServer(cfg.Log.File.Filename),
+		storeConfigManager: config.NewStoreConfigManager(&cfg.Security),
 	}
-
 	s.handler = newHandler(s)
 
 	// create audit backend
-	s.auditBackend = []audit.Backend{}
+	s.auditBackends = []audit.Backend{
+		audit.NewLocalLogBackend(true),
+		audit.NewPrometheusHistogramBackend(serviceAuditHistogram, false),
+	}
 	s.serviceAuditBackendLabels = make(map[string]*audit.BackendLabels)
+	s.serviceLabels = make(map[string][]apiutil.AccessPath)
+	s.apiServiceLabelMap = make(map[apiutil.AccessPath]string)
 
 	// Adjust etcd config.
 	etcdCfg, err := s.cfg.GenEmbedEtcdConfig()
@@ -399,7 +407,7 @@ func (s *Server) startServer(ctx context.Context) error {
 	defaultStorage := storage.NewStorageWithEtcdBackend(s.client, s.rootPath)
 	s.storage = storage.NewCoreStorage(defaultStorage, regionStorage, regionStorage)
 	s.basicCluster = core.NewBasicCluster()
-	s.cluster = cluster.NewRaftCluster(ctx, s.clusterID, syncer.NewRegionSyncer(s), s.client, s.httpClient)
+	s.cluster = cluster.NewRaftCluster(ctx, s.clusterID, syncer.NewRegionSyncer(s), s.client, s.httpClient, s.storeConfigManager)
 	s.hbStreams = hbstream.NewHeartbeatStreams(ctx, s.clusterID, s.cluster)
 	// initial hot_region_storage in here.
 	s.hotRegionStorage, err = storage.NewHotRegionsStorage(
@@ -681,6 +689,11 @@ func (s *Server) stopRaftCluster() {
 	s.cluster.Stop()
 }
 
+// GetStoreConfigManager returns the store config manager
+func (s *Server) GetStoreConfigManager() *config.StoreConfigManager {
+	return s.storeConfigManager
+}
+
 // GetAddr returns the server urls for clients.
 func (s *Server) GetAddr() string {
 	return s.cfg.AdvertiseClientUrls
@@ -798,7 +811,7 @@ func (s *Server) StartTimestamp() int64 {
 // GetMembers returns PD server list.
 func (s *Server) GetMembers() ([]*pdpb.Member, error) {
 	if s.IsClosed() {
-		return nil, errors.New("server not started")
+		return nil, errs.ErrServerNotStarted.FastGenByArgs()
 	}
 	members, err := cluster.GetMembers(s.GetClient())
 	return members, err
@@ -889,7 +902,7 @@ func (s *Server) SetReplicationConfig(cfg config.ReplicationConfig) error {
 		} else {
 			// NOTE: can be removed after placement rules feature is enabled by default.
 			for _, s := range raftCluster.GetStores() {
-				if !s.IsTombstone() && core.IsStoreContainLabel(s.GetMeta(), core.EngineKey, core.EngineTiFlash) {
+				if !s.IsRemoved() && core.IsStoreContainLabel(s.GetMeta(), core.EngineKey, core.EngineTiFlash) {
 					return errors.New("cannot disable placement rules with TiFlash nodes")
 				}
 			}
@@ -1117,9 +1130,45 @@ func (s *Server) GetRegions() []*core.RegionInfo {
 	return nil
 }
 
+// GetServiceLabels returns ApiAccessPaths by given service label
+// TODO: this function will be used for updating api rate limit config
+func (s *Server) GetServiceLabels(serviceLabel string) []apiutil.AccessPath {
+	if apis, ok := s.serviceLabels[serviceLabel]; ok {
+		return apis
+	}
+	return nil
+}
+
+// GetAPIAccessServiceLabel returns service label by given access path
+// TODO: this function will be used for updating api rate limit config
+func (s *Server) GetAPIAccessServiceLabel(accessPath apiutil.AccessPath) string {
+	if servicelabel, ok := s.apiServiceLabelMap[accessPath]; ok {
+		return servicelabel
+	}
+	accessPathNoMethod := apiutil.NewAccessPath(accessPath.Path, "")
+	if servicelabel, ok := s.apiServiceLabelMap[accessPathNoMethod]; ok {
+		return servicelabel
+	}
+	return ""
+}
+
+// AddServiceLabel is used to add the relationship between service label and api access path
+// TODO: this function will be used for updating api rate limit config
+func (s *Server) AddServiceLabel(serviceLabel string, accessPath apiutil.AccessPath) {
+	if slice, ok := s.serviceLabels[serviceLabel]; ok {
+		slice = append(slice, accessPath)
+		s.serviceLabels[serviceLabel] = slice
+	} else {
+		slice = []apiutil.AccessPath{accessPath}
+		s.serviceLabels[serviceLabel] = slice
+	}
+
+	s.apiServiceLabelMap[accessPath] = serviceLabel
+}
+
 // GetAuditBackend returns audit backends
 func (s *Server) GetAuditBackend() []audit.Backend {
-	return s.auditBackend
+	return s.auditBackends
 }
 
 // GetServiceAuditBackendLabels returns audit backend labels by serviceLabel
@@ -1421,6 +1470,7 @@ func (s *Server) ReplicateFileToMember(ctx context.Context, member *pdpb.Member,
 
 // PersistFile saves a file in DataDir.
 func (s *Server) PersistFile(name string, data []byte) error {
+	log.Info("persist file", zap.String("name", name), zap.Binary("data", data))
 	return os.WriteFile(filepath.Join(s.GetConfig().DataDir, name), data, 0644) // #nosec
 }
 
