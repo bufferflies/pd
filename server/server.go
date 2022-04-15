@@ -1429,7 +1429,8 @@ func (s *Server) reloadConfigFromKV() error {
 		switchableStorage.SwitchToDefaultStorage()
 		log.Info("server disable region storage")
 	}
-	return nil
+
+	return s.storeConfigManager.Reload(s.storage)
 }
 
 // ReplicateFileToMember is used to synchronize state to a member.

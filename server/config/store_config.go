@@ -15,17 +15,24 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"reflect"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/typeutil"
+	"github.com/tikv/pd/server/storage/endpoint"
 	"go.uber.org/zap"
 )
+
+// storeReadyWaitTime is the time to wait for a store to be ready.
+const storeReadyWaitTime = 5 * time.Second
 
 var (
 	// default region max size is 144MB
@@ -119,9 +126,16 @@ func (c *StoreConfig) GetRegionMaxKeys() uint64 {
 }
 
 // UpdateConfig updates the config with given config map.
-func (m *StoreConfigManager) UpdateConfig(c *StoreConfig) {
+func (m *StoreConfigManager) UpdateConfig(c *StoreConfig, storage endpoint.ConfigStorage) {
 	if c == nil || m == nil {
 		return
+	}
+	if reflect.DeepEqual(c, m.GetStoreConfig()) {
+		log.Debug("store config is not changed")
+		return
+	}
+	if storage != nil {
+		storage.SaveStoreConfig(c)
 	}
 	atomic.StorePointer(&m.config, unsafe.Pointer(c))
 }
@@ -135,23 +149,49 @@ func (m *StoreConfigManager) GetStoreConfig() *StoreConfig {
 	return (*StoreConfig)(config)
 }
 
+// Reload reloads the configuration from the storage.
+func (m *StoreConfigManager) Reload(storage endpoint.ConfigStorage) error {
+	cfg := &StoreConfig{}
+	isExist, err := storage.LoadStoreConfig(cfg)
+	if err != nil {
+		return err
+	}
+	if isExist {
+		m.UpdateConfig(cfg, nil)
+	}
+	return nil
+}
+
+// Observer is used to observe the store config.
+func (m *StoreConfigManager) Observer(ctx context.Context, url string, storage endpoint.ConfigStorage) {
+	select {
+	case <-time.After(storeReadyWaitTime):
+		cfg, err := m.getTikvConfig(url)
+		if err != nil {
+			log.Warn("load store config failed", zap.String("url", url), zap.Error(err))
+			return
+		}
+		m.UpdateConfig(cfg, storage)
+	case <-ctx.Done():
+		return
+	}
+}
+
 // Load Loads the store configuration.
-func (m *StoreConfigManager) Load(statusAddress string) error {
+func (m *StoreConfigManager) getTikvConfig(statusAddress string) (*StoreConfig, error) {
 	url := fmt.Sprintf("%s://%s/config", m.schema, statusAddress)
 	resp, err := m.client.Get(url)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var cfg StoreConfig
 	if err := json.Unmarshal(body, &cfg); err != nil {
-		return err
+		return nil, err
 	}
-	log.Info("update store config successful", zap.String("status-url", url), zap.Stringer("config", &cfg))
-	m.UpdateConfig(&cfg)
-	return nil
+	return &cfg, nil
 }
