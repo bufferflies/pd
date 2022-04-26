@@ -16,6 +16,7 @@ package cluster
 
 import (
 	"bytes"
+
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -36,10 +37,7 @@ func (c *RaftCluster) HandleRegionHeartbeat(region *core.RegionInfo) error {
 		return err
 	}
 
-	c.RLock()
-	co := c.coordinator
-	c.RUnlock()
-	co.opController.Dispatch(region, schedule.DispatchFromHeartBeat)
+	c.coordinator.opController.Dispatch(region, schedule.DispatchFromHeartBeat)
 	return nil
 }
 
@@ -224,9 +222,9 @@ func (c *RaftCluster) HandleBatchReportSplit(request *pdpb.ReportBatchSplitReque
 	return &pdpb.ReportBatchSplitResponse{}, nil
 }
 
-// HandleBucketHeartbeat processes RegionInfo reports from client
-func (c *RaftCluster) HandleBucketHeartbeat(b *metapb.Buckets) error {
-	if err := c.processBucketHeartbeat(b); err != nil {
+// HandleReportBuckets processes buckets reports from client
+func (c *RaftCluster) HandleReportBuckets(b *metapb.Buckets) error {
+	if err := c.processReportBuckets(b); err != nil {
 		return err
 	}
 	c.hotBuckets.CheckAsync(buckets.NewCheckPeerTask(b))

@@ -44,6 +44,8 @@ import (
 	"github.com/tikv/pd/server/schedulers"
 	"github.com/tikv/pd/server/storage"
 	"github.com/tikv/pd/tests"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func Test(t *testing.T) {
@@ -245,7 +247,7 @@ func resetStoreState(c *C, rc *cluster.RaftCluster, storeID uint64, state metapb
 		newStore = newStore.Clone(core.TombstoneStore())
 	}
 
-	rc.GetCacheCluster().PutStore(newStore)
+	rc.GetBasicCluster().PutStore(newStore)
 	if state == metapb.StoreState_Offline {
 		rc.SetStoreLimit(storeID, storelimit.RemovePeer, storelimit.Unlimited)
 	} else if state == metapb.StoreState_Tombstone {
@@ -286,6 +288,8 @@ func testStateAndLimit(c *C, clusterID uint64, rc *cluster.RaftCluster, grpcPDCl
 }
 
 func testRemoveStore(c *C, clusterID uint64, rc *cluster.RaftCluster, grpcPDClient pdpb.PDClient, store *metapb.Store) {
+	rc.GetOpts().SetMaxReplicas(2)
+	defer rc.GetOpts().SetMaxReplicas(3)
 	{
 		beforeState := metapb.StoreState_Up // When store is up
 		// Case 1: RemoveStore should be OK;
@@ -389,7 +393,7 @@ func (s *clusterTestSuite) TestRaftClusterMultipleRestart(c *C) {
 	c.Assert(tc, NotNil)
 
 	// let the job run at small interval
-	c.Assert(failpoint.Enable("github.com/tikv/pd/server/highFrequencyClusterJobs", `return(true)`), IsNil)
+	c.Assert(failpoint.Enable("github.com/tikv/pd/server/cluster/highFrequencyClusterJobs", `return(true)`), IsNil)
 	for i := 0; i < 100; i++ {
 		err = rc.Start(leaderServer.GetServer())
 		c.Assert(err, IsNil)
@@ -398,6 +402,7 @@ func (s *clusterTestSuite) TestRaftClusterMultipleRestart(c *C) {
 		c.Assert(rc, NotNil)
 		rc.Stop()
 	}
+	c.Assert(failpoint.Disable("github.com/tikv/pd/server/cluster/highFrequencyClusterJobs"), IsNil)
 }
 
 func newMetaStore(storeID uint64, addr, version string, state metapb.StoreState, deployPath string) *metapb.Store {
@@ -421,6 +426,25 @@ func (s *clusterTestSuite) TestGetPDMembers(c *C) {
 	c.Assert(err, IsNil)
 	// A more strict test can be found at api/member_test.go
 	c.Assert(resp.GetMembers(), Not(HasLen), 0)
+}
+
+func (s *clusterTestSuite) TestNotLeader(c *C) {
+	tc, err := tests.NewTestCluster(s.ctx, 2)
+	defer tc.Destroy()
+	c.Assert(err, IsNil)
+	c.Assert(tc.RunInitialServers(), IsNil)
+
+	tc.WaitLeader()
+	followerServer := tc.GetServer(tc.GetFollower())
+	grpcPDClient := testutil.MustNewGrpcClient(c, followerServer.GetAddr())
+	clusterID := followerServer.GetClusterID()
+	req := &pdpb.AllocIDRequest{Header: testutil.NewRequestHeader(clusterID)}
+	resp, err := grpcPDClient.AllocID(context.Background(), req)
+	c.Assert(resp, IsNil)
+	grpcStatus, ok := status.FromError(err)
+	c.Assert(ok, IsTrue)
+	c.Assert(grpcStatus.Code(), Equals, codes.Unavailable)
+	c.Assert(grpcStatus.Message(), Equals, "not leader")
 }
 
 func (s *clusterTestSuite) TestStoreVersionChange(c *C) {
@@ -523,8 +547,8 @@ func (s *clusterTestSuite) TestConcurrentHandleRegion(c *C) {
 		if i == 0 {
 			wg.Add(1)
 		}
-		go func(isReciver bool) {
-			if isReciver {
+		go func(isReceiver bool) {
+			if isReceiver {
 				_, err := stream.Recv()
 				c.Assert(err, IsNil)
 				wg.Done()
@@ -669,7 +693,7 @@ func (s *clusterTestSuite) TestLoadClusterInfo(c *C) {
 	c.Assert(raftCluster, IsNil)
 
 	storage := rc.GetStorage()
-	basicCluster := rc.GetCacheCluster()
+	basicCluster := rc.GetBasicCluster()
 	opt := rc.GetOpts()
 	// Save meta, stores and regions.
 	n := 10
@@ -733,7 +757,7 @@ func (s *clusterTestSuite) TestLoadClusterInfo(c *C) {
 	for _, region := range regions {
 		c.Assert(storage.SaveRegion(region), IsNil)
 	}
-	raftCluster.GetStorage().LoadRegionsOnce(s.ctx, raftCluster.GetCacheCluster().PutRegion)
+	raftCluster.GetStorage().LoadRegionsOnce(s.ctx, raftCluster.GetBasicCluster().PutRegion)
 	c.Assert(raftCluster.GetRegionCount(), Equals, n)
 }
 

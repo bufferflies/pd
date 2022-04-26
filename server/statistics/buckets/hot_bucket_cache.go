@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/tikv/pd/pkg/logutil"
 	"go.uber.org/zap"
 	"sort"
 
@@ -151,6 +152,7 @@ func (h *HotBucketCache) CheckAsync(task flowBucketsItemTask) bool {
 }
 
 func (h *HotBucketCache) updateItems() {
+	defer logutil.LogPanic()
 	for {
 		select {
 		case <-h.ctx.Done():
