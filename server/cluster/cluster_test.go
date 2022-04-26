@@ -1046,7 +1046,7 @@ func (s *testClusterInfoSuite) TestOfflineAndMerge(c *C) {
 			panic(err)
 		}
 	}
-	cluster.regionStats = statistics.NewRegionStatistics(cluster.GetOpts(), cluster.ruleManager, cluster.storeConfigManager)
+	cluster.regionStats = statistics.NewRegionStatistics(cluster.GetOpts(), cluster.ruleManager, cluster.GetStoreConfig())
 	cluster.coordinator = newCoordinator(s.ctx, cluster, nil)
 
 	// Put 3 stores.
@@ -1093,6 +1093,44 @@ func (s *testClusterInfoSuite) TestOfflineAndMerge(c *C) {
 		regions = core.MergeRegions(regions)
 		heartbeatRegions(c, cluster, regions)
 		c.Assert(cluster.GetOfflineRegionStatsByType(statistics.OfflinePeer), HasLen, len(regions))
+	}
+}
+
+func (s *testClusterInfoSuite) TestSyncConfig(c *C) {
+	_, opt, err := newTestScheduleConfig()
+	c.Assert(err, IsNil)
+	tc := newTestCluster(s.ctx, opt)
+	stores := newTestStores(5, "2.0.0")
+	for _, s := range stores {
+		c.Assert(tc.putStoreLocked(s), IsNil)
+	}
+	c.Assert(tc.getUpStores(), HasLen, 5)
+
+	testdata := []struct {
+		whiteList     []string
+		maxRegionSize uint64
+		updated       bool
+	}{{
+		whiteList:     []string{},
+		maxRegionSize: uint64(144),
+		updated:       false,
+	}, {
+		whiteList:     []string{"127.0.0.1:5"},
+		maxRegionSize: uint64(10),
+		updated:       true,
+	}}
+
+	for _, v := range testdata {
+		manager := config.NewTestStoreConfigManager(v.whiteList)
+		tc.storeConfig = manager.GetStoreConfig()
+		c.Assert(tc.storeConfig.GetRegionMaxSize(), Equals, uint64(144))
+		index := syncConfig(manager, tc.GetStores(), 0)
+		if !v.updated {
+			c.Assert(index, Equals, 5)
+		} else {
+			c.Assert(index, Less, 5)
+		}
+		c.Assert(tc.storeConfig.GetRegionMaxSize(), Equals, v.maxRegionSize)
 	}
 }
 
@@ -1366,11 +1404,13 @@ func newTestStores(n uint64, version string) []*core.StoreInfo {
 	stores := make([]*core.StoreInfo, 0, n)
 	for i := uint64(1); i <= n; i++ {
 		store := &metapb.Store{
-			Id:         i,
-			Address:    fmt.Sprintf("127.0.0.1:%d", i),
-			State:      metapb.StoreState_Up,
-			Version:    version,
-			DeployPath: getTestDeployPath(i),
+			Id:            i,
+			Address:       fmt.Sprintf("127.0.0.1:%d", i),
+			StatusAddress: fmt.Sprintf("127.0.0.1:%d", i),
+			State:         metapb.StoreState_Up,
+			Version:       version,
+			DeployPath:    getTestDeployPath(i),
+			NodeState:     metapb.NodeState_Serving,
 		}
 		stores = append(stores, core.NewStoreInfo(store))
 	}

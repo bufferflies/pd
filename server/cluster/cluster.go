@@ -17,6 +17,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"github.com/tikv/pd/pkg/net"
 	"math"
 	"net/http"
 	"strconv"
@@ -107,11 +108,11 @@ type RaftCluster struct {
 	etcdClient *clientv3.Client
 	httpClient *http.Client
 
-	running            bool
-	meta               *metapb.Cluster
-	storeConfigManager *config.StoreConfigManager
-	storage            storage.Storage
-	minResolvedTS      uint64
+	running       bool
+	meta          *metapb.Cluster
+	storeConfig   *config.StoreConfig
+	storage       storage.Storage
+	minResolvedTS uint64
 	// Keep the previous store limit settings when removing a store.
 	prevStoreLimit map[uint64]map[storelimit.Type]*storelimit.StoreLimit
 
@@ -145,21 +146,20 @@ type Status struct {
 
 // NewRaftCluster create a new cluster.
 func NewRaftCluster(ctx context.Context, clusterID uint64, regionSyncer *syncer.RegionSyncer, etcdClient *clientv3.Client,
-	httpClient *http.Client, manager *config.StoreConfigManager) *RaftCluster {
+	httpClient *http.Client) *RaftCluster {
 	return &RaftCluster{
-		serverCtx:          ctx,
-		running:            false,
-		clusterID:          clusterID,
-		regionSyncer:       regionSyncer,
-		httpClient:         httpClient,
-		etcdClient:         etcdClient,
-		storeConfigManager: manager,
+		serverCtx:    ctx,
+		running:      false,
+		clusterID:    clusterID,
+		regionSyncer: regionSyncer,
+		httpClient:   httpClient,
+		etcdClient:   etcdClient,
 	}
 }
 
 // GetStoreConfig returns the store config.
 func (c *RaftCluster) GetStoreConfig() *config.StoreConfig {
-	return c.storeConfigManager.GetStoreConfig()
+	return c.storeConfig
 }
 
 // LoadClusterStatus loads the cluster status.
@@ -259,13 +259,14 @@ func (c *RaftCluster) Start(s Server) error {
 	if err != nil {
 		return err
 	}
-
+	manager := config.NewStoreConfigManager(c.httpClient)
+	c.storeConfig = manager.GetStoreConfig()
 	c.coordinator = newCoordinator(c.ctx, cluster, s.GetHBStreams())
-	c.regionStats = statistics.NewRegionStatistics(c.opt, c.ruleManager, c.storeConfigManager)
+	c.regionStats = statistics.NewRegionStatistics(c.opt, c.ruleManager, c.storeConfig)
 	c.limiter = NewStoreLimiter(s.GetPersistOptions())
 	c.unsafeRecoveryController = newUnsafeRecoveryController(cluster)
 
-	c.wg.Add(6)
+	c.wg.Add(7)
 	go c.runCoordinator()
 	failpoint.Inject("highFrequencyClusterJobs", func() {
 		backgroundJobInterval = 1 * time.Microsecond
@@ -275,9 +276,53 @@ func (c *RaftCluster) Start(s Server) error {
 	go c.syncRegions()
 	go c.runReplicationMode()
 	go c.runMinResolvedTSJob()
+	go c.runSyncConfig(manager)
 	c.running = true
 
 	return nil
+}
+
+// runSyncConfig runs the job to sync config.
+func (c *RaftCluster) runSyncConfig(manager *config.StoreConfigManager) {
+	defer logutil.LogPanic()
+	defer c.wg.Done()
+
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	stores := c.GetStores()
+
+	index := syncConfig(manager, stores, 0)
+	for {
+		select {
+		case <-c.ctx.Done():
+			log.Info("sync store config job is stopped")
+			return
+		case <-ticker.C:
+			index = syncConfig(manager, stores, index)
+			if index >= len(stores) {
+				index = 0
+				stores = c.GetStores()
+			}
+		}
+	}
+}
+
+func syncConfig(manager *config.StoreConfigManager, stores []*core.StoreInfo, index int) int {
+	for ; index < len(stores); index++ {
+		// filter out the stores that are tiflash
+		if store := stores[index]; store.IsTiFlash() {
+			continue
+		}
+		// it will try next store if the current store is failed.
+		address := net.ResolveLoopBackAddr(stores[index].GetStatusAddress(), stores[index].GetAddress())
+		if err := manager.Observer(address); err != nil {
+			log.Warn("sync store config failed", zap.Error(err))
+			continue
+		}
+		// it will only try one store.
+		return index
+	}
+	return len(stores)
 }
 
 // LoadClusterInfo loads cluster related info.
@@ -1407,7 +1452,7 @@ func (c *RaftCluster) deleteStoreLocked(store *core.StoreInfo) error {
 }
 
 func (c *RaftCluster) collectMetrics() {
-	statsMap := statistics.NewStoreStatisticsMap(c.opt)
+	statsMap := statistics.NewStoreStatisticsMap(c.opt, c.storeConfig)
 	stores := c.GetStores()
 	for _, s := range stores {
 		statsMap.Observe(s, c.hotStat.StoresStats)
@@ -1421,7 +1466,7 @@ func (c *RaftCluster) collectMetrics() {
 }
 
 func (c *RaftCluster) resetMetrics() {
-	statsMap := statistics.NewStoreStatisticsMap(c.opt)
+	statsMap := statistics.NewStoreStatisticsMap(c.opt, c.storeConfig)
 	statsMap.Reset()
 
 	c.coordinator.resetSchedulerMetrics()
