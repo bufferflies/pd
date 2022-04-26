@@ -116,6 +116,17 @@ func (bc *BasicCluster) GetFollowerStores(region *RegionInfo) []*StoreInfo {
 	return Stores
 }
 
+// GetLeaderStoreByRegionID returns the leader store of the given region.
+func (bc *BasicCluster) GetLeaderStoreByRegionID(regionID uint64) *StoreInfo {
+	bc.RLock()
+	defer bc.RUnlock()
+	region := bc.Regions.GetRegion(regionID)
+	if region == nil || region.GetLeader() == nil {
+		return nil
+	}
+	return bc.Stores.GetStore(region.GetLeader().GetStoreId())
+}
+
 // GetLeaderStore returns all Stores that contains the region's leader peer.
 func (bc *BasicCluster) GetLeaderStore(region *RegionInfo) *StoreInfo {
 	bc.RLock()
@@ -401,8 +412,8 @@ func (bc *BasicCluster) CheckAndPutRegion(region *RegionInfo) []*RegionInfo {
 func (bc *BasicCluster) RemoveRegionIfExist(id uint64) {
 	bc.Lock()
 	defer bc.Unlock()
-	if region := bc.Regions.GetRegion(id); region != nil {
-		bc.Regions.RemoveRegion(region)
+	if r := bc.Regions.GetRegion(id); r != nil {
+		bc.Regions.RemoveRegion(r)
 	}
 }
 
