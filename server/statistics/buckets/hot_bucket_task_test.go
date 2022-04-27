@@ -15,10 +15,11 @@
 package buckets
 
 import (
-	. "github.com/pingcap/check"
-	"golang.org/x/net/context"
+	"context"
 	"strconv"
 	"time"
+
+	. "github.com/pingcap/check"
 )
 
 var _ = Suite(&testHotBucketTaskCache{})

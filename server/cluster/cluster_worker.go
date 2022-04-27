@@ -16,7 +16,6 @@ package cluster
 
 import (
 	"bytes"
-	"github.com/tikv/pd/server/statistics/buckets"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
@@ -27,6 +26,7 @@ import (
 	"github.com/tikv/pd/pkg/logutil"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule"
+	"github.com/tikv/pd/server/statistics/buckets"
 	"github.com/tikv/pd/server/versioninfo"
 	"go.uber.org/zap"
 )
