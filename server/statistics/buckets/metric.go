@@ -25,17 +25,17 @@ var (
 			Help:      "Bucketed histogram of the batch size of handled requests.",
 			Buckets:   prometheus.LinearBuckets(0, 30, 20),
 		})
-	flowHist = prometheus.NewHistogram(
+	BucketsHotDegreeHist = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Namespace: "pd",
 			Subsystem: "scheduler",
-			Name:      "flow_hist",
+			Name:      "buckets_hot_degree_hist",
 			Help:      "The distribution of bucket flow bytes",
-			Buckets:   prometheus.ExponentialBuckets(1, 8, 12),
+			Buckets:   prometheus.ExponentialBuckets(-100, 10, 20),
 		})
 )
 
 func init() {
 	prometheus.MustRegister(bucketsHeartbeatIntervalHist)
-	prometheus.MustRegister(flowHist)
+	prometheus.MustRegister(BucketsHotDegreeHist)
 }

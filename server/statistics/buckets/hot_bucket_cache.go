@@ -50,8 +50,8 @@ const (
 	bucketBtreeDegree = 10
 
 	// the range of the hot degree should be [-1000, 10000]
-	minHotDegree = -10000
-	maxHotDegree = 10000
+	minHotDegree = -100
+	maxHotDegree = 100
 )
 
 var minHotThresholds = [statistics.RegionStatCount]uint64{
@@ -223,7 +223,7 @@ func (h *HotBucketCache) scanRange(startKey []byte, f func(item *BucketTreeItem)
 func (h *HotBucketCache) collectBucketsMetrics(stats *BucketTreeItem) {
 	bucketsHeartbeatIntervalHist.Observe(float64(stats.interval))
 	for _, bucket := range stats.stats {
-		flowHist.Observe(float64(bucket.hotDegree))
+		BucketsHotDegreeHist.Observe(float64(bucket.hotDegree))
 	}
 }
 
@@ -249,7 +249,7 @@ type BucketTreeItem struct {
 	startKey []byte
 	endKey   []byte
 	stats    []*BucketStat
-	interval int64
+	interval uint64
 	version  uint64
 	status   status
 }
@@ -409,6 +409,7 @@ func convertToBucketTreeItem(buckets *metapb.Buckets) *BucketTreeItem {
 		endKey:   getEndKey(buckets),
 		regionID: buckets.RegionId,
 		stats:    items,
+		interval: buckets.GetPeriodInMs() / 1000,
 		version:  buckets.Version,
 		status:   alive,
 	}
