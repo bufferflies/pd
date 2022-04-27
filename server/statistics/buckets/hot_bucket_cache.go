@@ -50,8 +50,8 @@ const (
 	bucketBtreeDegree = 10
 
 	// the range of the hot degree should be [-1000, 10000]
-	minHotDegree = -10000
-	maxHotDegree = 10000
+	minHotDegree = -100
+	maxHotDegree = 100
 )
 
 var minHotThresholds = [statistics.RegionStatCount]uint64{

@@ -31,7 +31,7 @@ var (
 			Subsystem: "scheduler",
 			Name:      "buckets_hot_degree_hist",
 			Help:      "The distribution of bucket flow bytes",
-			Buckets:   prometheus.ExponentialBuckets(-10000, 8, 12),
+			Buckets:   prometheus.ExponentialBuckets(-100, 10, 20),
 		})
 )
 
