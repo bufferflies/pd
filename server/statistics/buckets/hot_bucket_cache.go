@@ -89,7 +89,7 @@ func (h *HotBucketCache) BucketStats(degree int) map[uint64][]*BucketStat {
 	for _, item := range h.bucketsOfRegion {
 		stats := make([]*BucketStat, 0)
 		for _, b := range item.stats {
-			if b.hotDegree >= degree {
+			if b.Degree >= degree {
 				stats = append(stats, b)
 			}
 		}
@@ -107,7 +107,7 @@ func (h *HotBucketCache) putItem(item *BucketTreeItem, overlaps []*BucketTreeIte
 		*origin = *item
 		return
 	}
-	log.Info("putItem", zap.Stringer("item", item), zap.Int("overlaps", len(overlaps)), zap.Uint64("regionID", item.regionID))
+	log.Info("putItem", zap.Stringer("item", item), zap.Int("overlaps", len(overlaps)), zap.Uint64("RegionID", item.regionID))
 	// the origin bucket split two region(a,b) if overlaps is one and bigger than the new.
 	// b will be inserted into the tree
 	if len(overlaps) == 1 && overlaps[0].bigger(item) {
@@ -223,17 +223,17 @@ func (h *HotBucketCache) scanRange(startKey []byte, f func(item *BucketTreeItem)
 func (h *HotBucketCache) collectBucketsMetrics(stats *BucketTreeItem) {
 	bucketsHeartbeatIntervalHist.Observe(float64(stats.interval))
 	for _, bucket := range stats.stats {
-		BucketsHotDegreeHist.Observe(float64(bucket.hotDegree))
+		BucketsHotDegreeHist.Observe(float64(bucket.Degree))
 	}
 }
 
 // BucketStat is the record the bucket statistics.
 type BucketStat struct {
-	regionID  uint64
-	startKey  []byte
-	endKey    []byte
-	hotDegree int
-	interval  uint64
+	RegionID uint64
+	StartKey []byte
+	EndKey   []byte
+	Degree   int
+	interval uint64
 	// see statistics.RegionStatKind
 	loads []uint64
 }
@@ -306,17 +306,17 @@ func (b *BucketTreeItem) inherit(origins []*BucketTreeItem) {
 
 	// p1/p2: the hot stats of the new/old index
 	for p1, p2 := 0, 0; p1 < len(newItem) && p2 < len(bucketStats); {
-		oldDegree := bucketStats[p2].hotDegree
-		newDegree := newItem[p1].hotDegree
+		oldDegree := bucketStats[p2].Degree
+		newDegree := newItem[p1].Degree
 		if oldDegree < 0 && newDegree <= 0 && oldDegree < newDegree {
-			newItem[p1].hotDegree = oldDegree
+			newItem[p1].Degree = oldDegree
 		}
 		if oldDegree > 0 && oldDegree > newDegree {
-			newItem[p1].hotDegree = oldDegree
+			newItem[p1].Degree = oldDegree
 		}
-		if bytes.Compare(newItem[p1].endKey, bucketStats[p2].endKey) > 0 {
+		if bytes.Compare(newItem[p1].EndKey, bucketStats[p2].EndKey) > 0 {
 			p2++
-		} else if bytes.Equal(newItem[p1].endKey, bucketStats[p2].endKey) {
+		} else if bytes.Equal(newItem[p1].EndKey, bucketStats[p2].EndKey) {
 			p2++
 			p1++
 		} else {
@@ -333,7 +333,7 @@ func (b *BucketTreeItem) clip(origins []*BucketTreeItem) []*BucketStat {
 	}
 	bucketStats := make([]*BucketStat, 0)
 	index := sort.Search(len(origins[0].stats), func(i int) bool {
-		return bytes.Compare(b.startKey, origins[0].stats[i].endKey) < 0
+		return bytes.Compare(b.startKey, origins[0].stats[i].EndKey) < 0
 	})
 	bucketStats = append(bucketStats, origins[0].stats[index:]...)
 	for i := 1; i < len(origins); i++ {
@@ -349,17 +349,17 @@ func (b *BucketTreeItem) split(key []byte, dir direction) bool {
 	if dir == left {
 		b.endKey = key
 		index := sort.Search(len(b.stats), func(i int) bool {
-			return bytes.Compare(b.stats[i].endKey, key) >= 0
+			return bytes.Compare(b.stats[i].EndKey, key) >= 0
 		})
 		b.stats = b.stats[:index+1]
-		b.stats[len(b.stats)-1].endKey = key
+		b.stats[len(b.stats)-1].EndKey = key
 	} else {
 		b.startKey = key
 		index := sort.Search(len(b.stats), func(i int) bool {
-			return bytes.Compare(b.stats[i].startKey, key) > 0
+			return bytes.Compare(b.stats[i].StartKey, key) > 0
 		})
 		b.stats = b.stats[index-1:]
-		b.stats[0].startKey = key
+		b.stats[0].StartKey = key
 	}
 	return true
 }
@@ -369,11 +369,11 @@ func (b *BucketTreeItem) calculateHotDegree() {
 		hot := slice.AnyOf(stat.loads, func(i int) bool {
 			return stat.loads[i] > minHotThresholds[i]
 		})
-		if hot && stat.hotDegree < maxHotDegree {
-			stat.hotDegree++
+		if hot && stat.Degree < maxHotDegree {
+			stat.Degree++
 		}
-		if !hot && stat.hotDegree > minHotDegree {
-			stat.hotDegree--
+		if !hot && stat.Degree > minHotDegree {
+			stat.Degree--
 		}
 	}
 }
@@ -396,12 +396,12 @@ func convertToBucketTreeItem(buckets *metapb.Buckets) *BucketTreeItem {
 			buckets.Stats.WriteQps[i] / interval,
 		}
 		items[i] = &BucketStat{
-			regionID:  buckets.RegionId,
-			startKey:  buckets.Keys[i],
-			endKey:    buckets.Keys[i+1],
-			hotDegree: 0,
-			loads:     loads,
-			interval:  interval,
+			RegionID: buckets.RegionId,
+			StartKey: buckets.Keys[i],
+			EndKey:   buckets.Keys[i+1],
+			Degree:   0,
+			loads:    loads,
+			interval: interval,
 		}
 	}
 	return &BucketTreeItem{

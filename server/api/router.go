@@ -251,6 +251,9 @@ func createRouter(prefix string, svr *server.Server) *mux.Router {
 	registerFunc(apiRouter, "/hotspot/regions/history", hotStatusHandler.GetHistoryHotRegions, setMethods("GET"), setAuditBackend(prometheus))
 	registerFunc(apiRouter, "/hotspot/stores", hotStatusHandler.GetHotStores, setMethods("GET"), setAuditBackend(prometheus))
 
+	bucketStatusHandler := newHotBucketsStatusHandler(handler, rd)
+	registerFunc(apiRouter, "/hotspot/buckets", bucketStatusHandler.GetHotBuckets, setMethods("GET"), setAuditBackend(prometheus))
+
 	regionHandler := newRegionHandler(svr, rd)
 	registerFunc(clusterRouter, "/region/id/{id}", regionHandler.GetRegionByID, setMethods("GET"), setAuditBackend(prometheus))
 	registerFunc(clusterRouter.UseEncodedPath(), "/region/key/{key}", regionHandler.GetRegion, setMethods("GET"), setAuditBackend(prometheus))

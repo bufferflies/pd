@@ -56,11 +56,11 @@ func (t *checkBucketsTask) runTask(cache *HotBucketCache) {
 
 type collectBucketStatsTask struct {
 	minDegree int
-	ret       chan map[uint64][]*BucketStat // regionID ==>Buckets
+	ret       chan map[uint64][]*BucketStat // RegionID ==>Buckets
 }
 
-// newCollectBucketStatsTask creates task to collect bucket stats.
-func newCollectBucketStatsTask(minDegree int) *collectBucketStatsTask {
+// NewCollectBucketStatsTask creates task to collect bucket stats.
+func NewCollectBucketStatsTask(minDegree int) *collectBucketStatsTask {
 	return &collectBucketStatsTask{
 		minDegree: minDegree,
 		ret:       make(chan map[uint64][]*BucketStat, 1),
@@ -75,7 +75,7 @@ func (t *collectBucketStatsTask) runTask(cache *HotBucketCache) {
 	t.ret <- cache.BucketStats(t.minDegree)
 }
 
-func (t *collectBucketStatsTask) waitRet(ctx context.Context) map[uint64][]*BucketStat {
+func (t *collectBucketStatsTask) WaitRet(ctx context.Context) map[uint64][]*BucketStat {
 	select {
 	case <-ctx.Done():
 		return nil

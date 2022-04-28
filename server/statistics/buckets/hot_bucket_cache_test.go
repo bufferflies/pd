@@ -154,9 +154,9 @@ func (t *testHotBucketCache) TestGetBucketsByKeyRange(c *C) {
 
 func (t *testHotBucketCache) TestInherit(c *C) {
 	originBucketItem := convertToBucketTreeItem(newTestBuckets(1, 1, [][]byte{[]byte("10"), []byte("20"), []byte("50"), []byte("60")}))
-	originBucketItem.stats[0].hotDegree = 3
-	originBucketItem.stats[1].hotDegree = 2
-	originBucketItem.stats[2].hotDegree = 10
+	originBucketItem.stats[0].Degree = 3
+	originBucketItem.stats[1].Degree = 2
+	originBucketItem.stats[2].Degree = 10
 
 	testdata := []struct {
 		buckets *metapb.Buckets
@@ -184,7 +184,7 @@ func (t *testHotBucketCache) TestInherit(c *C) {
 		buckets.inherit([]*BucketTreeItem{originBucketItem})
 		c.Assert(buckets.stats, HasLen, len(v.expect))
 		for k, v := range v.expect {
-			c.Assert(buckets.stats[k].hotDegree, Equals, v)
+			c.Assert(buckets.stats[k].Degree, Equals, v)
 		}
 	}
 }
@@ -236,10 +236,10 @@ func (t *testHotBucketCache) TestSplit(c *C) {
 		}
 		if v.dir == left {
 			c.Assert(origin.endKey, BytesEquals, v.splitKey)
-			c.Assert(origin.stats[len(origin.stats)-1].endKey, BytesEquals, v.splitKey)
+			c.Assert(origin.stats[len(origin.stats)-1].EndKey, BytesEquals, v.splitKey)
 		} else {
 			c.Assert(origin.startKey, BytesEquals, v.splitKey)
-			c.Assert(origin.stats[0].startKey, BytesEquals, v.splitKey)
+			c.Assert(origin.stats[0].StartKey, BytesEquals, v.splitKey)
 		}
 	}
 }
@@ -274,7 +274,7 @@ func (t *testHotBucketCache) TestClip(c *C) {
 		stats := item.clip(origins)
 		c.Assert(stats, HasLen, v.count)
 		if v.count > 0 {
-			c.Assert(stats[0].startKey, BytesEquals, v.startKey)
+			c.Assert(stats[0].StartKey, BytesEquals, v.startKey)
 		}
 	}
 }

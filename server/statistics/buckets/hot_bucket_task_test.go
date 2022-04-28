@@ -49,8 +49,8 @@ func (s *testHotBucketTaskCache) TestCheckBucketsTask(c *C) {
 	item := s.hotCache.bucketsOfRegion[uint64(1)]
 	c.Assert(item, NotNil)
 	c.Assert(item.stats, HasLen, 2)
-	c.Assert(item.stats[0].hotDegree, Equals, -1)
-	c.Assert(item.stats[1].hotDegree, Equals, -1)
+	c.Assert(item.stats[0].Degree, Equals, -1)
+	c.Assert(item.stats[1].Degree, Equals, -1)
 
 	// case2: add bucket successful and the hot degree should inherit from the old one.
 	buckets = newTestBuckets(2, 1, [][]byte{[]byte("20"), []byte("30")})
@@ -59,7 +59,7 @@ func (s *testHotBucketTaskCache) TestCheckBucketsTask(c *C) {
 	time.Sleep(time.Millisecond * 10)
 	item = s.hotCache.bucketsOfRegion[uint64(2)]
 	c.Assert(item.stats, HasLen, 1)
-	c.Assert(item.stats[0].hotDegree, Equals, -2)
+	c.Assert(item.stats[0].Degree, Equals, -2)
 
 	// case3：add bucket successful and the hot degree should inherit from the old one.
 	buckets = newTestBuckets(1, 1, [][]byte{[]byte("10"), []byte("20")})
@@ -68,7 +68,7 @@ func (s *testHotBucketTaskCache) TestCheckBucketsTask(c *C) {
 	time.Sleep(time.Millisecond * 10)
 	item = s.hotCache.bucketsOfRegion[uint64(1)]
 	c.Assert(item.stats, HasLen, 1)
-	c.Assert(item.stats[0].hotDegree, Equals, -2)
+	c.Assert(item.stats[0].Degree, Equals, -2)
 }
 
 func (s *testHotBucketTaskCache) TestCollectBucketStatsTask(c *C) {
@@ -79,12 +79,12 @@ func (s *testHotBucketTaskCache) TestCollectBucketStatsTask(c *C) {
 		s.hotCache.putItem(buckets, nil)
 	}
 
-	task := newCollectBucketStatsTask(0)
+	task := NewCollectBucketStatsTask(0)
 	c.Assert(s.hotCache.CheckAsync(task), IsTrue)
-	stats := task.waitRet(context.Background())
+	stats := task.WaitRet(context.Background())
 	c.Assert(stats, HasLen, 10)
-	task = newCollectBucketStatsTask(1)
+	task = NewCollectBucketStatsTask(1)
 	c.Assert(s.hotCache.CheckAsync(task), IsTrue)
-	stats = task.waitRet(context.Background())
+	stats = task.WaitRet(context.Background())
 	c.Assert(stats, HasLen, 0)
 }
