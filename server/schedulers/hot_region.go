@@ -547,7 +547,7 @@ func (bs *balanceSolver) filterHotPeers() []*statistics.HotPeerStat {
 	// filter pending region
 	appendItem := func(items []*statistics.HotPeerStat, item *statistics.HotPeerStat) []*statistics.HotPeerStat {
 		minHotDegree := bs.GetOpts().GetHotRegionCacheHitsThreshold()
-		if _, ok := bs.sche.regionPendings[item.ID()]; !ok && !item.IsNeedCoolDownTransferLeader(minHotDegree) {
+		if _, ok := bs.sche.regionPendings[item.RegionID]; !ok && !item.IsNeedCoolDownTransferLeader(minHotDegree) {
 			// no in pending operator and no need cool down after transfer leader
 			items = append(items, item)
 		}
@@ -637,7 +637,7 @@ func (bs *balanceSolver) isRegionAvailable(region *core.RegionInfo) bool {
 }
 
 func (bs *balanceSolver) getRegion() *core.RegionInfo {
-	region := bs.GetRegion(bs.cur.srcPeerStat.ID())
+	region := bs.GetRegion(bs.cur.srcPeerStat.RegionID)
 	if !bs.isRegionAvailable(region) {
 		return nil
 	}
@@ -646,12 +646,12 @@ func (bs *balanceSolver) getRegion() *core.RegionInfo {
 	case movePeer:
 		srcPeer := region.GetStorePeer(bs.cur.srcStore.GetID())
 		if srcPeer == nil {
-			log.Debug("region does not have a peer on source store, maybe stat out of date", zap.Uint64("region-id", bs.cur.srcPeerStat.ID()))
+			log.Debug("region does not have a peer on source store, maybe stat out of date", zap.Uint64("region-id", bs.cur.srcPeerStat.RegionID))
 			return nil
 		}
 	case transferLeader:
 		if region.GetLeader().GetStoreId() != bs.cur.srcStore.GetID() {
-			log.Debug("region leader is not on source store, maybe stat out of date", zap.Uint64("region-id", bs.cur.srcPeerStat.ID()))
+			log.Debug("region leader is not on source store, maybe stat out of date", zap.Uint64("region-id", bs.cur.srcPeerStat.RegionID))
 			return nil
 		}
 	default:
@@ -797,7 +797,7 @@ func (bs *balanceSolver) isTolerance(src, dst *statistics.StoreLoadDetail, dim i
 	if srcRate <= dstRate {
 		return false
 	}
-	pendingAmp := (1 + pendingAmpFactor*srcRate/(srcRate-dstRate))
+	pendingAmp := 1 + pendingAmpFactor*srcRate/(srcRate-dstRate)
 	srcPending := src.LoadPred.Pending().Loads[dim]
 	dstPending := dst.LoadPred.Pending().Loads[dim]
 	hotPendingStatus.WithLabelValues(bs.rwTy.String(), strconv.FormatUint(src.GetID(), 10), strconv.FormatUint(dst.GetID(), 10)).Set(pendingAmp)
@@ -998,7 +998,7 @@ func stepRank(rk0 float64, step float64) func(float64) int64 {
 func (bs *balanceSolver) isReadyToBuild() bool {
 	return bs.cur.srcStore != nil && bs.cur.dstStore != nil &&
 		bs.cur.srcPeerStat != nil && bs.cur.srcPeerStat.StoreID == bs.cur.srcStore.GetID() &&
-		bs.cur.region != nil && bs.cur.region.GetID() == bs.cur.srcPeerStat.ID()
+		bs.cur.region != nil && bs.cur.region.GetID() == bs.cur.srcPeerStat.RegionID
 }
 
 func (bs *balanceSolver) buildOperator() (op *operator.Operator, infl *statistics.Influence) {

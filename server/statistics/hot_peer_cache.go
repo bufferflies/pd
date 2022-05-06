@@ -16,6 +16,7 @@ package statistics
 
 import (
 	"math"
+	"strconv"
 	"time"
 
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -263,7 +264,7 @@ func (f *hotPeerCache) collectMetrics(typ string) {
 
 func (f *hotPeerCache) getOldHotPeerStat(regionID, storeID uint64) *HotPeerStat {
 	if hotPeers, ok := f.peersOfStore[storeID]; ok {
-		if v := hotPeers.Get(regionID); v != nil {
+		if v := hotPeers.Get(strconv.FormatUint(regionID, 10)); v != nil {
 			return v.(*HotPeerStat)
 		}
 	}
@@ -369,7 +370,7 @@ func (f *hotPeerCache) isRegionHotWithPeer(region *core.RegionInfo, peer *metapb
 	}
 	storeID := peer.GetStoreId()
 	if peers, ok := f.peersOfStore[storeID]; ok {
-		if stat := peers.Get(region.GetID()); stat != nil {
+		if stat := peers.Get(strconv.FormatUint(region.GetID(), 10)); stat != nil {
 			return stat.(*HotPeerStat).HotDegree >= hotDegree
 		}
 	}
@@ -486,7 +487,7 @@ func (f *hotPeerCache) putItem(item *HotPeerStat) {
 
 func (f *hotPeerCache) removeItem(item *HotPeerStat) {
 	if peers, ok := f.peersOfStore[item.StoreID]; ok {
-		peers.Remove(item.RegionID)
+		peers.Remove(strconv.FormatUint(item.RegionID, 10))
 	}
 	if stores, ok := f.storesOfRegion[item.RegionID]; ok {
 		delete(stores, item.StoreID)

@@ -16,6 +16,7 @@ package statistics
 
 import (
 	"math"
+	"strconv"
 	"time"
 
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -115,8 +116,8 @@ type HotPeerStat struct {
 }
 
 // ID returns region ID. Implementing TopNItem.
-func (stat *HotPeerStat) ID() uint64 {
-	return stat.RegionID
+func (stat *HotPeerStat) ID() string {
+	return strconv.FormatUint(stat.RegionID, 10)
 }
 
 // Less compares two HotPeerStat.Implementing TopNItem.

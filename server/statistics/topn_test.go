@@ -17,6 +17,7 @@ package statistics
 import (
 	"math/rand"
 	"sort"
+	"strconv"
 	"time"
 
 	. "github.com/pingcap/check"
@@ -31,8 +32,8 @@ type item struct {
 	values []float64
 }
 
-func (it *item) ID() uint64 {
-	return it.id
+func (it *item) ID() string {
+	return strconv.FormatUint(it.id, 10)
 }
 
 func (it *item) Less(k int, than TopNItem) bool {
@@ -102,7 +103,7 @@ func (s *testTopNSuite) TestPut(c *C) {
 
 	// check Get
 	for i := uint64(0); i < Total; i++ {
-		it := tn.Get(i).(*item)
+		it := tn.Get(strconv.FormatUint(i, 10)).(*item)
 		c.Assert(it.id, Equals, i)
 		c.Assert(it.values[0], Equals, -float64(i))
 	}
@@ -136,17 +137,17 @@ func (s *testTopNSuite) TestRemove(c *C) {
 	}, false /*insert*/)
 
 	// check Remove
-	for i := 0; i < Total; i++ {
+	for i := uint64(0); i < Total; i++ {
 		if i%3 != 0 {
-			it := tn.Remove(uint64(i)).(*item)
-			c.Assert(it.id, Equals, uint64(i))
+			it := tn.Remove(strconv.FormatUint(i, 10)).(*item)
+			c.Assert(it.id, Equals, i)
 		}
 	}
 
 	// check Remove worked
-	for i := 0; i < Total; i++ {
+	for i := uint64(0); i < Total; i++ {
 		if i%3 != 0 {
-			c.Assert(tn.Remove(uint64(i)), IsNil)
+			c.Assert(tn.Remove(strconv.FormatUint(i, 10)), IsNil)
 		}
 	}
 
@@ -195,7 +196,7 @@ func (s *testTopNSuite) TestRemove(c *C) {
 	}
 
 	for i := uint64(0); i < Total; i += 3 {
-		it := tn.Get(i).(*item)
+		it := tn.Get(strconv.FormatUint(i, 10)).(*item)
 		c.Assert(it.id, Equals, i)
 		c.Assert(it.values[0], Equals, -float64(i))
 	}

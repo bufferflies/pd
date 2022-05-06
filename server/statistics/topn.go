@@ -26,7 +26,7 @@ import (
 // TopNItem represents a single object in TopN.
 type TopNItem interface {
 	// ID is used to check identity.
-	ID() uint64
+	ID() string
 	// Less tests whether the current item is less than the given argument in the `k`th dimension.
 	Less(k int, than TopNItem) bool
 }
@@ -83,7 +83,7 @@ func (tn *TopN) GetAll() []TopNItem {
 }
 
 // Get returns the item with given id, nil if there is no such item.
-func (tn *TopN) Get(id uint64) TopNItem {
+func (tn *TopN) Get(id string) TopNItem {
 	tn.rw.RLock()
 	defer tn.rw.RUnlock()
 	return tn.topns[0].Get(id)
@@ -109,7 +109,7 @@ func (tn *TopN) RemoveExpired() {
 }
 
 // Remove deletes the item by given ID and returns it.
-func (tn *TopN) Remove(id uint64) (item TopNItem) {
+func (tn *TopN) Remove(id string) (item TopNItem) {
 	tn.rw.Lock()
 	defer tn.rw.Unlock()
 	for _, stn := range tn.topns {
@@ -161,7 +161,7 @@ func (stn *singleTopN) GetAll() []TopNItem {
 	return append(topn, stn.rest.GetAll()...)
 }
 
-func (stn *singleTopN) Get(id uint64) TopNItem {
+func (stn *singleTopN) Get(id string) TopNItem {
 	if item := stn.topn.Get(id); item != nil {
 		return item
 	}
@@ -179,7 +179,7 @@ func (stn *singleTopN) Put(item TopNItem) (isUpdate bool) {
 	return
 }
 
-func (stn *singleTopN) Remove(id uint64) TopNItem {
+func (stn *singleTopN) Remove(id string) TopNItem {
 	item := stn.topn.Remove(id)
 	if item == nil {
 		item = stn.rest.Remove(id)
@@ -217,7 +217,7 @@ type indexedHeap struct {
 	k     int
 	rev   bool
 	items []TopNItem
-	index map[uint64]int
+	index map[string]int
 }
 
 func newTopNHeap(k, hint int) *indexedHeap {
@@ -225,7 +225,7 @@ func newTopNHeap(k, hint int) *indexedHeap {
 		k:     k,
 		rev:   false,
 		items: make([]TopNItem, 0, hint),
-		index: map[uint64]int{},
+		index: map[string]int{},
 	}
 }
 
@@ -234,7 +234,7 @@ func newRevTopNHeap(k, hint int) *indexedHeap {
 		k:     k,
 		rev:   true,
 		items: make([]TopNItem, 0, hint),
-		index: map[uint64]int{},
+		index: map[string]int{},
 	}
 }
 
@@ -285,7 +285,7 @@ func (hp *indexedHeap) Top() TopNItem {
 }
 
 // Get returns item with the given ID.
-func (hp *indexedHeap) Get(id uint64) TopNItem {
+func (hp *indexedHeap) Get(id string) TopNItem {
 	idx, ok := hp.index[id]
 	if !ok {
 		return nil
@@ -313,7 +313,7 @@ func (hp *indexedHeap) Put(item TopNItem) (isUpdate bool) {
 }
 
 // Remove deletes item by ID and returns it.
-func (hp *indexedHeap) Remove(id uint64) TopNItem {
+func (hp *indexedHeap) Remove(id string) TopNItem {
 	if idx, ok := hp.index[id]; ok {
 		item := heap.Remove(hp, idx)
 		return item.(TopNItem)
@@ -322,21 +322,21 @@ func (hp *indexedHeap) Remove(id uint64) TopNItem {
 }
 
 type ttlItem struct {
-	id     uint64
+	id     string
 	expire time.Time
 }
 
 type ttlList struct {
 	ttl   time.Duration
 	lst   *list.List
-	index map[uint64]*list.Element
+	index map[string]*list.Element
 }
 
 func newTTLList(ttl time.Duration) *ttlList {
 	return &ttlList{
 		ttl:   ttl,
 		lst:   list.New(),
-		index: map[uint64]*list.Element{},
+		index: map[string]*list.Element{},
 	}
 }
 
@@ -344,8 +344,8 @@ func (tl *ttlList) Len() int {
 	return tl.lst.Len()
 }
 
-func (tl *ttlList) TakeExpired() []uint64 {
-	expired := []uint64{}
+func (tl *ttlList) TakeExpired() []string {
+	expired := []string{}
 	now := time.Now()
 	for ele := tl.lst.Front(); ele != nil; ele = tl.lst.Front() {
 		item := ele.Value.(ttlItem)
@@ -359,7 +359,7 @@ func (tl *ttlList) TakeExpired() []uint64 {
 	return expired
 }
 
-func (tl *ttlList) Put(id uint64) (isUpdate bool) {
+func (tl *ttlList) Put(id string) (isUpdate bool) {
 	item := ttlItem{id: id}
 	if ele, ok := tl.index[id]; ok {
 		isUpdate = true
@@ -370,7 +370,7 @@ func (tl *ttlList) Put(id uint64) (isUpdate bool) {
 	return
 }
 
-func (tl *ttlList) Remove(id uint64) (removed bool) {
+func (tl *ttlList) Remove(id string) (removed bool) {
 	if ele, ok := tl.index[id]; ok {
 		_ = tl.lst.Remove(ele)
 		delete(tl.index, id)
