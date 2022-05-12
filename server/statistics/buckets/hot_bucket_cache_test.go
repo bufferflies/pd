@@ -17,15 +17,10 @@ package buckets
 import (
 	"context"
 	"fmt"
-	"testing"
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/metapb"
 )
-
-func Test(t *testing.T) {
-	TestingT(t)
-}
 
 var _ = Suite(&testHotBucketCache{})
 

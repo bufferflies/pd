@@ -23,7 +23,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/btree"
-	"github.com/tikv/pd/pkg/cache"
 	"github.com/tikv/pd/pkg/logutil"
 	"github.com/tikv/pd/pkg/slice"
 	"github.com/tikv/pd/server/core"
@@ -60,7 +59,7 @@ var minHotThresholds = [statistics.RegionStatCount]uint64{
 
 // HotBucketCache is the cache of hot stats.
 type HotBucketCache struct {
-	ring            *cache.Ring                // regionId -> BucketsStats
+	ring            *BucketTree                // regionId -> BucketsStats
 	bucketsOfRegion map[uint64]*BucketTreeItem // regionId -> BucketsStats
 	taskQueue       chan flowBucketsItemTask
 	ctx             context.Context
@@ -71,7 +70,7 @@ func NewBucketsCache(ctx context.Context) *HotBucketCache {
 	bucketCache := &HotBucketCache{
 		ctx:             ctx,
 		bucketsOfRegion: make(map[uint64]*BucketTreeItem),
-		ring:            cache.NewRing(bucketBtreeDegree),
+		ring:            NewBucketTree(bucketBtreeDegree),
 		taskQueue:       make(chan flowBucketsItemTask, queue),
 	}
 	go bucketCache.updateItems()
@@ -243,8 +242,8 @@ func (b *BucketTreeItem) String() string {
 }
 
 // Debris returns the debris of the item.
-func (b *BucketTreeItem) Debris(startKey, endKey []byte) []cache.RingItem {
-	var res []cache.RingItem
+func (b *BucketTreeItem) Debris(startKey, endKey []byte) []BucketItem {
+	var res []BucketItem
 	left := maxKey(startKey, b.startKey)
 	right := minKey(endKey, b.endKey)
 	// has no intersection
@@ -307,10 +306,6 @@ func (b *BucketTreeItem) clone(startKey, endKey []byte) *BucketTreeItem {
 	return item
 }
 
-func (b *BucketTreeItem) contains(key []byte) bool {
-	return bytes.Compare(b.startKey, key) <= 0 && bytes.Compare(key, b.endKey) < 0
-}
-
 // inherit the hot stats from the old item to the new item.
 // rule1: if one cross buckets are hot , it will inherit the hottest one.
 // rule2: if the cross buckets are not hot, it will inherit the coldest one.
@@ -334,7 +329,6 @@ func (b *BucketTreeItem) inherit(origins []*BucketTreeItem) {
 		// bucket should inherit the old bucket hot degree if they have some intersection.
 		// skip if the left is equal to the right key, such as [10 20] [20 30].
 		if bytes.Compare(left, right) < 0 {
-			log.Info("inherit bucket %s from %s", zap.ByteString("left", left), zap.ByteString("right", right))
 			oldDegree := oldItems[p2].HotDegree
 			newDegree := newItems[p1].HotDegree
 			// new bucket should interim old if the hot degree of the new bucket is less than zero.
