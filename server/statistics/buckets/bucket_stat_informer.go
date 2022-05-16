@@ -14,6 +14,12 @@
 
 package buckets
 
+import (
+	"fmt"
+	
+	"github.com/tikv/pd/server/core"
+)
+
 // BucketStatInformer is used to get the bucket statistics.
 type BucketStatInformer interface {
 	BucketsStats(degree int) map[uint64][]*BucketStat
@@ -28,4 +34,23 @@ type BucketStat struct {
 	Interval  uint64
 	// see statistics.RegionStatKind
 	Loads []uint64
+}
+
+// String implement for Stringer
+func (b *BucketStat) String() string {
+	return fmt.Sprintf("[region-id:%d][start-key:%s][end-key-key:%s][hot-degree:%d][Interval:%d(ms)][Loads:%v]",
+		b.RegionID, core.HexRegionKeyStr(b.StartKey), core.HexRegionKeyStr(b.EndKey), b.HotDegree, b.Interval, b.Loads)
+}
+
+func (b *BucketStat) clone() *BucketStat {
+	c := &BucketStat{
+		StartKey:  b.StartKey,
+		EndKey:    b.EndKey,
+		RegionID:  b.RegionID,
+		HotDegree: b.HotDegree,
+		Interval:  b.Interval,
+		Loads:     make([]uint64, len(b.Loads)),
+	}
+	copy(c.Loads, b.Loads)
+	return c
 }

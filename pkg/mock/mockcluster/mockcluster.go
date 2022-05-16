@@ -55,6 +55,7 @@ type Cluster struct {
 	ID             uint64
 	suspectRegions map[uint64]struct{}
 	*config.StoreConfigManager
+	hotBucketCache *buckets.HotBucketCache
 }
 
 // NewCluster creates a new Cluster
@@ -66,6 +67,7 @@ func NewCluster(ctx context.Context, opts *config.PersistOptions) *Cluster {
 		PersistOptions:     opts,
 		suspectRegions:     map[uint64]struct{}{},
 		StoreConfigManager: config.NewTestStoreConfigManager(nil),
+		hotBucketCache:     buckets.NewBucketsCache(ctx),
 	}
 	if clus.PersistOptions.GetReplicationConfig().EnablePlacementRules {
 		clus.initRuleManager()
@@ -133,7 +135,11 @@ func (mc *Cluster) RegionReadStats() map[uint64][]*statistics.HotPeerStat {
 
 // BucketsStats returns hot region's buckets stats.
 func (mc *Cluster) BucketsStats(degree int) map[uint64][]*buckets.BucketStat {
-	return nil
+	task := buckets.NewCollectBucketStatsTask(degree)
+	if !mc.hotBucketCache.CheckAsync(task) {
+		return nil
+	}
+	return task.WaitRet(context.Background())
 }
 
 // RegionWriteStats returns hot region's write stats.
