@@ -16,6 +16,7 @@ package cluster
 
 import (
 	"bytes"
+	"github.com/tikv/pd/server/statistics/buckets"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
@@ -236,5 +237,9 @@ func (c *RaftCluster) HandleBatchReportSplit(request *pdpb.ReportBatchSplitReque
 
 // HandleReportBuckets processes buckets reports from client
 func (c *RaftCluster) HandleReportBuckets(b *metapb.Buckets) error {
-	return c.processReportBuckets(b)
+	if err := c.processReportBuckets(b); err != nil {
+		return err
+	}
+	c.hotBucketCache.CheckAsync(buckets.NewCheckPeerTask(b))
+	return nil
 }

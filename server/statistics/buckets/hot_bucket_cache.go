@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-
 	"time"
 
 	"github.com/pingcap/kvproto/pkg/metapb"
