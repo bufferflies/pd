@@ -16,11 +16,15 @@ package buckets
 
 import (
 	"context"
-	"fmt"
+	"testing"
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/metapb"
 )
+
+func Test(t *testing.T) {
+	TestingT(t)
+}
 
 var _ = Suite(&testHotBucketCache{})
 
@@ -68,9 +72,9 @@ func (t *testHotBucketCache) TestPutItem(c *C) {
 	}}
 	for _, v := range testdata {
 		bucket := convertToBucketTreeItem(newTestBuckets(v.regionID, v.version, v.keys, 0))
-		c.Assert(bucket.StartKey(), BytesEquals, v.keys[0])
-		c.Assert(bucket.EndKey(), BytesEquals, v.keys[len(v.keys)-1])
-		cache.putItem(bucket, cache.getBucketsByKeyRange(bucket.StartKey(), bucket.EndKey()))
+		c.Assert(bucket.GetStartKey(), BytesEquals, v.keys[0])
+		c.Assert(bucket.GetEndKey(), BytesEquals, v.keys[len(v.keys)-1])
+		cache.putItem(bucket, cache.getBucketsByKeyRange(bucket.GetStartKey(), bucket.GetEndKey()))
 		c.Assert(cache.bucketsOfRegion, HasLen, v.regionCount)
 		c.Assert(cache.ring.Len(), Equals, v.treeLen)
 		c.Assert(cache.bucketsOfRegion[v.regionID], NotNil)
@@ -145,13 +149,11 @@ func (t *testHotBucketCache) TestInherit(c *C) {
 		expect:  []int{0},
 	}}
 
-	for i, v := range testdata {
-		fmt.Printf("case:%d\n", i)
+	for _, v := range testdata {
 		buckets := convertToBucketTreeItem(v.buckets)
 		buckets.inherit([]*BucketTreeItem{originBucketItem})
 		c.Assert(buckets.stats, HasLen, len(v.expect))
 		for k, v := range v.expect {
-			fmt.Println(k)
 			c.Assert(buckets.stats[k].HotDegree, Equals, v)
 		}
 	}
@@ -197,7 +199,7 @@ func (t *testHotBucketCache) TestBucketTreeItemClone(c *C) {
 		strict:   false,
 	}}
 	for _, v := range testdata {
-		copy := origin.clone(v.startKey, v.endKey)
+		copy := cloneBucketItemByRange(origin, v.startKey, v.endKey)
 		c.Assert(copy.startKey, BytesEquals, v.startKey)
 		c.Assert(copy.endKey, BytesEquals, v.endKey)
 		c.Assert(copy.stats, HasLen, v.count)
@@ -222,6 +224,7 @@ func (t *testHotBucketCache) TestCalculateHotDegree(c *C) {
 	origin.stats[0].Loads = []uint64{0, 0, 0, minHotThresholds[3] + 1, minHotThresholds[4] + 1, 0}
 	origin.calculateHotDegree()
 	c.Assert(origin.stats[0].HotDegree, Equals, 1)
+	c.Assert(false, IsTrue)
 }
 
 func newTestBuckets(regionID uint64, version uint64, keys [][]byte, flow uint64) *metapb.Buckets {

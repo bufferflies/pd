@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/tikv/pd/pkg/rangetree"
 	"time"
 
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -59,10 +60,31 @@ var minHotThresholds = [statistics.RegionStatCount]uint64{
 
 // HotBucketCache is the cache of hot stats.
 type HotBucketCache struct {
-	ring            *BucketTree                // regionId -> BucketsStats
+	ring            *rangetree.RangeTree       // regionId -> BucketsStats
 	bucketsOfRegion map[uint64]*BucketTreeItem // regionId -> BucketsStats
 	taskQueue       chan flowBucketsItemTask
 	ctx             context.Context
+}
+
+func bucketDebrisFactory(startKey, endKey []byte, item rangetree.RangeItem) []rangetree.RangeItem {
+	var res []rangetree.RangeItem
+	left := maxKey(startKey, item.GetStartKey())
+	right := minKey(endKey, item.GetEndKey())
+	// has no intersection
+	if bytes.Compare(left, right) > 0 {
+		return nil
+	}
+	bt := item.(*BucketTreeItem)
+	// there will be no debris if the left is equal to the start key.
+	if !bytes.Equal(item.GetStartKey(), left) {
+		res = append(res, cloneBucketItemByRange(bt, item.GetStartKey(), left))
+	}
+
+	// there will be no debris if the right is equal to the end key.
+	if !bytes.Equal(item.GetEndKey(), right) {
+		res = append(res, cloneBucketItemByRange(bt, right, item.GetEndKey()))
+	}
+	return res
 }
 
 // NewBucketsCache creates a new hot spot cache.
@@ -70,7 +92,7 @@ func NewBucketsCache(ctx context.Context) *HotBucketCache {
 	bucketCache := &HotBucketCache{
 		ctx:             ctx,
 		bucketsOfRegion: make(map[uint64]*BucketTreeItem),
-		ring:            NewBucketTree(bucketBtreeDegree),
+		ring:            rangetree.NewRangeTree(bucketBtreeDegree, bucketDebrisFactory),
 		taskQueue:       make(chan flowBucketsItemTask, queue),
 	}
 	go bucketCache.updateItems()
@@ -108,7 +130,7 @@ func (h *HotBucketCache) putItem(item *BucketTreeItem, overlaps []*BucketTreeIte
 		}
 	}
 	h.bucketsOfRegion[item.regionID] = item
-	h.ring.Put(item)
+	h.ring.Update(item)
 }
 
 // CheckAsync returns true if the task queue is not full.
@@ -174,7 +196,7 @@ func (b *BucketTreeItem) calculateHotDegree() {
 // getBucketsByKeyRange returns the overlaps with the key range.
 func (h *HotBucketCache) getBucketsByKeyRange(startKey, endKey []byte) (items []*BucketTreeItem) {
 	item := &BucketTreeItem{startKey: startKey, endKey: endKey}
-	ringItems := h.ring.GetRange(item)
+	ringItems := h.ring.GetOverlaps(item)
 	for _, item := range ringItems {
 		bucketItem := item.(*BucketTreeItem)
 		items = append(items, bucketItem)
@@ -225,13 +247,13 @@ type BucketTreeItem struct {
 	status   status
 }
 
-// StartKey implements the TreeItem interface.
-func (b *BucketTreeItem) StartKey() []byte {
+// GetStartKey returns the start key of the bucket tree.
+func (b *BucketTreeItem) GetStartKey() []byte {
 	return b.startKey
 }
 
-// EndKey implements the TreeItem interface.
-func (b *BucketTreeItem) EndKey() []byte {
+// GetEndKey return the end key of the bucket tree item.
+func (b *BucketTreeItem) GetEndKey() []byte {
 	return b.endKey
 }
 
@@ -239,27 +261,6 @@ func (b *BucketTreeItem) EndKey() []byte {
 func (b *BucketTreeItem) String() string {
 	return fmt.Sprintf("[region-id:%d][start-key:%s][end-key:%s]",
 		b.regionID, core.HexRegionKeyStr(b.startKey), core.HexRegionKeyStr(b.endKey))
-}
-
-// Debris returns the debris of the item.
-func (b *BucketTreeItem) Debris(startKey, endKey []byte) []BucketItem {
-	var res []BucketItem
-	left := maxKey(startKey, b.startKey)
-	right := minKey(endKey, b.endKey)
-	// has no intersection
-	if bytes.Compare(left, right) > 0 {
-		return nil
-	}
-	// there will be no debris if the left is equal to the start key.
-	if !bytes.Equal(b.startKey, left) {
-		res = append(res, b.clone(b.startKey, left))
-	}
-
-	// there will be no debris if the right is equal to the end key.
-	if !bytes.Equal(b.endKey, right) {
-		res = append(res, b.clone(right, b.endKey))
-	}
-	return res
 }
 
 // Less returns true if the start key is less than the other.
@@ -279,9 +280,9 @@ func (b *BucketTreeItem) compareKeyRange(origin *BucketTreeItem) bool {
 	return bytes.Equal(b.startKey, origin.startKey) && bytes.Equal(b.endKey, origin.endKey)
 }
 
-// Clone returns a new item with the same key range.
+// cloneBucketItemByRange returns a new item with the same key range.
 // item must have some debris for the given key range
-func (b *BucketTreeItem) clone(startKey, endKey []byte) *BucketTreeItem {
+func cloneBucketItemByRange(b *BucketTreeItem, startKey, endKey []byte) *BucketTreeItem {
 	item := &BucketTreeItem{
 		regionID: b.regionID,
 		startKey: startKey,
