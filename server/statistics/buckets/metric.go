@@ -14,38 +14,31 @@
 
 package buckets
 
-import "github.com/prometheus/client_golang/prometheus"
+import (
+	"github.com/prometheus/client_golang/prometheus"
+)
 
 var (
-	bucketsHeartbeatIntervalHist = prometheus.NewHistogram(
-		prometheus.HistogramOpts{
-			Namespace: "pd",
-			Subsystem: "scheduler",
-			Name:      "buckets_heartbeat_interval_hist",
-			Help:      "Bucketed histogram of the batch size of handled requests.",
-			Buckets:   prometheus.LinearBuckets(0, 30, 20),
-		})
 	bucketsHotDegreeHist = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Namespace: "pd",
 			Subsystem: "scheduler",
 			Name:      "buckets_hot_degree_hist",
-			Help:      "The distribution of bucket flow bytes",
+			Help:      "Bucketed histogram of bucket hot degree",
 			Buckets:   prometheus.LinearBuckets(-100, 10, 20),
 		})
 
-	bucketsHotHandlerDuration = prometheus.NewHistogramVec(
+	bucketsTaskDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Namespace: "pd",
 			Subsystem: "scheduler",
-			Name:      "bucket_hot_degree_duration",
-			Help:      "Bucketed histogram of processing time (s) of handled buckets.",
+			Name:      "bucket_task_duration",
+			Help:      "Bucketed histogram of processing time (s) of bucket task.",
 			Buckets:   prometheus.ExponentialBuckets(1, 1.4, 30), // 1s ~ 6.72 hours
 		}, []string{"type"})
 )
 
 func init() {
-	prometheus.MustRegister(bucketsHeartbeatIntervalHist)
 	prometheus.MustRegister(bucketsHotDegreeHist)
-	prometheus.MustRegister(bucketsHotHandlerDuration)
+	prometheus.MustRegister(bucketsTaskDuration)
 }

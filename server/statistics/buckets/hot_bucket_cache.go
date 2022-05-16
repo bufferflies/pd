@@ -60,12 +60,16 @@ var minHotThresholds = [statistics.RegionStatCount]uint64{
 
 // HotBucketCache is the cache of hot stats.
 type HotBucketCache struct {
-	ring            *rangetree.RangeTree       // regionId -> BucketsStats
-	bucketsOfRegion map[uint64]*BucketTreeItem // regionId -> BucketsStats
+	ring            *rangetree.RangeTree       // regionId -> BucketTreeItem
+	bucketsOfRegion map[uint64]*BucketTreeItem // regionId -> BucketTreeItem
 	taskQueue       chan flowBucketsItemTask
 	ctx             context.Context
 }
 
+// bucketDebrisFactory returns the debris.
+// like bucket tree item: | 001------------200|
+// the split key range:      | 050---150|
+// returns:              |001--050| |150--150|
 func bucketDebrisFactory(startKey, endKey []byte, item rangetree.RangeItem) []rangetree.RangeItem {
 	var res []rangetree.RangeItem
 	left := maxKey(startKey, item.GetStartKey())
@@ -152,7 +156,7 @@ func (h *HotBucketCache) updateItems() {
 		case task := <-h.taskQueue:
 			start := time.Now()
 			task.runTask(h)
-			bucketsHotHandlerDuration.WithLabelValues(task.taskType().String()).Observe(time.Since(start).Seconds())
+			bucketsTaskDuration.WithLabelValues(task.taskType().String()).Observe(time.Since(start).Seconds())
 		}
 	}
 }
@@ -206,7 +210,6 @@ func (h *HotBucketCache) getBucketsByKeyRange(startKey, endKey []byte) (items []
 
 // collectBucketsMetrics collects the metrics of the hot stats.
 func (h *HotBucketCache) collectBucketsMetrics(stats *BucketTreeItem) {
-	bucketsHeartbeatIntervalHist.Observe(float64(stats.interval))
 	for _, bucket := range stats.stats {
 		bucketsHotDegreeHist.Observe(float64(bucket.HotDegree))
 	}
@@ -219,7 +222,7 @@ type BucketStat struct {
 	EndKey    []byte
 	HotDegree int
 	Interval  uint64
-	// see statistics.RegionStatKind
+	// the order see statistics.RegionStatKind
 	Loads []uint64
 }
 
@@ -359,7 +362,7 @@ func (b *BucketStat) String() string {
 func convertToBucketTreeItem(buckets *metapb.Buckets) *BucketTreeItem {
 	items := make([]*BucketStat, len(buckets.Keys)-1)
 	interval := buckets.PeriodInMs
-	// Interval may be zero after the tikv initial.
+	// Interval may be zero after the tikv init.
 	if interval == 0 {
 		interval = 10 * 1000
 	}

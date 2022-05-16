@@ -224,7 +224,6 @@ func (t *testHotBucketCache) TestCalculateHotDegree(c *C) {
 	origin.stats[0].Loads = []uint64{0, 0, 0, minHotThresholds[3] + 1, minHotThresholds[4] + 1, 0}
 	origin.calculateHotDegree()
 	c.Assert(origin.stats[0].HotDegree, Equals, 1)
-	c.Assert(false, IsTrue)
 }
 
 func newTestBuckets(regionID uint64, version uint64, keys [][]byte, flow uint64) *metapb.Buckets {
