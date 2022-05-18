@@ -16,6 +16,7 @@ package cluster
 
 import (
 	"context"
+	"fmt"
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -65,4 +66,34 @@ func (s *testClusterWorkerSuite) TestReportBatchSplit(c *C) {
 	}
 	_, err = cluster.HandleBatchReportSplit(&pdpb.ReportBatchSplitRequest{Regions: regions})
 	c.Assert(err, IsNil)
+}
+
+func (s *testClusterWorkerSuite) TestValidateBucketRequest(c *C) {
+	startKey, endKey := []byte("100"), []byte("200")
+	testdate := []struct {
+		keys   [][]byte
+		expect [][]byte
+	}{{
+		[][]byte{[]byte("000"), []byte("100")},
+		nil,
+	}, {
+		[][]byte{[]byte("200"), []byte("300")},
+		nil,
+	}, {
+		[][]byte{[]byte("100"), []byte("200")},
+		[][]byte{[]byte("100"), []byte("200")},
+	}, {
+		[][]byte{[]byte("120"), []byte("150"), []byte("180")},
+		[][]byte{[]byte("100"), []byte("150"), []byte("200")},
+	}}
+	for i, v := range testdate {
+		fmt.Println("test case", i)
+		buckets := metapb.Buckets{Keys: v.keys}
+		err := validateBucketsRequest(startKey, endKey, buckets)
+		if v.expect == nil {
+			c.Assert(err, NotNil)
+		} else {
+			c.Assert(buckets.Keys, DeepEquals, v.expect)
+		}
+	}
 }

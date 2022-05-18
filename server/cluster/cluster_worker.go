@@ -16,7 +16,6 @@ package cluster
 
 import (
 	"bytes"
-
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -28,6 +27,7 @@ import (
 	"github.com/tikv/pd/server/schedule"
 	"github.com/tikv/pd/server/versioninfo"
 	"go.uber.org/zap"
+	"sort"
 )
 
 // HandleRegionHeartbeat processes RegionInfo reports from client.
@@ -237,4 +237,34 @@ func (c *RaftCluster) HandleBatchReportSplit(request *pdpb.ReportBatchSplitReque
 // HandleReportBuckets processes buckets reports from client
 func (c *RaftCluster) HandleReportBuckets(buckets *metapb.Buckets) error {
 	return c.processReportBuckets(buckets)
+}
+
+func validateBucketsRequest(startKey, endKey []byte, buckets metapb.Buckets) error {
+	keys := buckets.Keys
+	if bytes.Compare(keys[0], endKey) >= 0 || bytes.Compare(keys[len(keys)-1], startKey) <= 0 {
+		bucketEventCounter.WithLabelValues("no-intersection").Inc()
+		return errors.Errorf("region %v has not intersection", buckets.GetRegionId())
+	}
+	startIndex := sort.Search(len(keys), func(i int) bool {
+		return bytes.Compare(keys[i], startKey) < 0
+	})
+	endIndex := sort.Search(len(keys), func(i int) bool {
+		log.Info("end index", zap.Int("index", i),
+			zap.ByteString("key", keys[i]),
+			zap.ByteString("end-key", endKey))
+		return bytes.Compare(keys[i], endKey) > 0
+	})
+	log.Info("validate request",
+		zap.Int("start-index", startIndex),
+		zap.Int("end-index", endIndex))
+	if endIndex < 0 {
+		endIndex = len(keys)
+	}
+	if startIndex < 0 {
+		startIndex = 0
+	}
+	buckets.Keys = buckets.Keys[startIndex:endIndex]
+	buckets.Keys[0] = startKey
+	buckets.Keys[len(buckets.Keys)-1] = endKey
+	return nil
 }
