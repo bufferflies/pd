@@ -16,8 +16,6 @@ package cluster
 
 import (
 	"context"
-	"fmt"
-
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
@@ -70,30 +68,68 @@ func (s *testClusterWorkerSuite) TestReportBatchSplit(c *C) {
 
 func (s *testClusterWorkerSuite) TestValidateBucketRequest(c *C) {
 	startKey, endKey := []byte("100"), []byte("200")
-	testdate := []struct {
+	testdata := []struct {
 		keys   [][]byte
+		loads  []uint64
 		expect [][]byte
 	}{{
+		//case 1: |010 100| and |100 200|
 		[][]byte{[]byte("000"), []byte("100")},
+		[]uint64{1},
 		nil,
 	}, {
+		// case 2: |200 300| and |100 200|
 		[][]byte{[]byte("200"), []byte("300")},
+		[]uint64{1},
 		nil,
 	}, {
+		// case 3: |100 200| and |100 200|
 		[][]byte{[]byte("100"), []byte("200")},
+		[]uint64{1},
 		[][]byte{[]byte("100"), []byte("200")},
 	}, {
+		// case 4: |120 150 180| and |100 200|
 		[][]byte{[]byte("120"), []byte("150"), []byte("180")},
+		[]uint64{1, 2},
+		[][]byte{[]byte("100"), []byte("150"), []byte("200")},
+	}, {
+		// case5: |080 150 200| and |100 200|
+		[][]byte{[]byte("080"), []byte("150"), []byte("200")},
+		[]uint64{1, 2},
+		[][]byte{[]byte("100"), []byte("150"), []byte("200")},
+	}, {
+		// case5: |120 140 150 200| and |100 200|
+		[][]byte{[]byte("120"), []byte("140"), []byte("150"), []byte("200")},
+		[]uint64{1, 2, 3},
+		[][]byte{[]byte("100"), []byte("140"), []byte("150"), []byte("200")},
+	}, {
+		// case5: |010 020 150 250 300| and |100 200|
+		[][]byte{[]byte("010"), []byte("020"), []byte("150"), []byte("250"), []byte("300")},
+		[]uint64{1, 2, 3, 4},
 		[][]byte{[]byte("100"), []byte("150"), []byte("200")},
 	}}
-	for i, v := range testdate {
-		fmt.Println("test case", i)
-		buckets := metapb.Buckets{Keys: v.keys}
-		err := validateBucketsRequest(startKey, endKey, buckets)
+	for _, v := range testdata {
+		buckets := &metapb.Buckets{Keys: v.keys,
+			Stats: &metapb.BucketStats{
+				WriteQps:   v.loads,
+				WriteBytes: v.loads,
+				WriteKeys:  v.loads,
+				ReadKeys:   v.loads,
+				ReadQps:    v.loads,
+				ReadBytes:  v.loads,
+			}}
+		err := preprocess(startKey, endKey, buckets)
 		if v.expect == nil {
 			c.Assert(err, NotNil)
 		} else {
+			c.Assert(err, IsNil)
 			c.Assert(buckets.Keys, DeepEquals, v.expect)
+			c.Assert(buckets.Stats.WriteQps, HasLen, len(buckets.Keys)-1)
+			c.Assert(buckets.Stats.WriteBytes, HasLen, len(buckets.Keys)-1)
+			c.Assert(buckets.Stats.WriteKeys, HasLen, len(buckets.Keys)-1)
+			c.Assert(buckets.Stats.ReadQps, HasLen, len(buckets.Keys)-1)
+			c.Assert(buckets.Stats.ReadKeys, HasLen, len(buckets.Keys)-1)
+			c.Assert(buckets.Stats.ReadBytes, HasLen, len(buckets.Keys)-1)
 		}
 	}
 }

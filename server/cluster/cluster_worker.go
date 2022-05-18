@@ -236,35 +236,56 @@ func (c *RaftCluster) HandleBatchReportSplit(request *pdpb.ReportBatchSplitReque
 
 // HandleReportBuckets processes buckets reports from client
 func (c *RaftCluster) HandleReportBuckets(buckets *metapb.Buckets) error {
-	return c.processReportBuckets(buckets)
+	region := c.core.GetRegion(buckets.GetRegionId())
+	if region == nil {
+		bucketEventCounter.WithLabelValues("region_cache_miss").Inc()
+		return errors.Errorf("region %v not found", buckets.GetRegionId())
+	}
+	if err := preprocess(region.GetStartKey(), region.GetEndKey(), buckets); err != nil {
+		bucketEventCounter.WithLabelValues("no-intersections").Inc()
+	}
+	return c.processReportBuckets(buckets, region)
 }
 
-func validateBucketsRequest(startKey, endKey []byte, buckets metapb.Buckets) error {
+// preprocess return errs if the key range of the buckets is out of the given key range.
+// It will fix the key range if they have some intersections.
+// the given keys:			 |100------------200|
+// buckets keys: 	|010--080----150----180------250|
+// fixed bucket keys:        |100--150--180--200|
+func preprocess(startKey, endKey []byte, buckets *metapb.Buckets) error {
 	keys := buckets.Keys
 	if bytes.Compare(keys[0], endKey) >= 0 || bytes.Compare(keys[len(keys)-1], startKey) <= 0 {
 		bucketEventCounter.WithLabelValues("no-intersection").Inc()
 		return errors.Errorf("region %v has not intersection", buckets.GetRegionId())
 	}
+	if bytes.Equal(keys[0], startKey) && bytes.Equal(keys[len(keys)-1], endKey) {
+		return nil
+	}
+	// return the first element index that is bigger than the start key.
 	startIndex := sort.Search(len(keys), func(i int) bool {
-		return bytes.Compare(keys[i], startKey) < 0
+		return bytes.Compare(keys[i], startKey) >= 0
 	})
+
 	endIndex := sort.Search(len(keys), func(i int) bool {
-		log.Info("end index", zap.Int("index", i),
-			zap.ByteString("key", keys[i]),
-			zap.ByteString("end-key", endKey))
-		return bytes.Compare(keys[i], endKey) > 0
+		return bytes.Compare(keys[i], endKey) >= 0
 	})
-	log.Info("validate request",
-		zap.Int("start-index", startIndex),
-		zap.Int("end-index", endIndex))
-	if endIndex < 0 {
-		endIndex = len(keys)
+
+	if startIndex > 0 {
+		startIndex--
 	}
-	if startIndex < 0 {
-		startIndex = 0
+
+	if endIndex < len(keys) {
+		endIndex++
 	}
+
 	buckets.Keys = buckets.Keys[startIndex:endIndex]
 	buckets.Keys[0] = startKey
 	buckets.Keys[len(buckets.Keys)-1] = endKey
+	buckets.Stats.WriteQps = buckets.Stats.WriteQps[startIndex : endIndex-1]
+	buckets.Stats.WriteBytes = buckets.Stats.WriteBytes[startIndex : endIndex-1]
+	buckets.Stats.WriteKeys = buckets.Stats.WriteKeys[startIndex : endIndex-1]
+	buckets.Stats.ReadQps = buckets.Stats.ReadQps[startIndex : endIndex-1]
+	buckets.Stats.ReadBytes = buckets.Stats.ReadBytes[startIndex : endIndex-1]
+	buckets.Stats.ReadKeys = buckets.Stats.ReadKeys[startIndex : endIndex-1]
 	return nil
 }

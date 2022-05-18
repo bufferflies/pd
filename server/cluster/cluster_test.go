@@ -580,7 +580,7 @@ func (s *testClusterInfoSuite) TestBucketHeartbeat(c *C) {
 		Version:  1,
 		Keys:     [][]byte{{'1'}, {'2'}},
 	}
-	c.Assert(cluster.processReportBuckets(buckets), NotNil)
+	c.Assert(cluster.processReportBuckets(buckets, cluster.GetRegion(buckets.GetRegionId())), NotNil)
 
 	// case2: bucket can be processed after the region update.
 	stores := newTestStores(3, "2.0.0")
@@ -592,14 +592,14 @@ func (s *testClusterInfoSuite) TestBucketHeartbeat(c *C) {
 
 	c.Assert(cluster.processRegionHeartbeat(regions[0]), IsNil)
 	c.Assert(cluster.GetRegion(uint64(0)).GetBuckets(), IsNil)
-	c.Assert(cluster.processReportBuckets(buckets), IsNil)
+	c.Assert(cluster.processReportBuckets(buckets, cluster.GetRegion(buckets.GetRegionId())), IsNil)
 	c.Assert(cluster.GetRegion(uint64(0)).GetBuckets(), DeepEquals, buckets)
 
 	// case3: the bucket version is same.
-	c.Assert(cluster.processReportBuckets(buckets), IsNil)
+	c.Assert(cluster.processReportBuckets(buckets, cluster.GetRegion(buckets.GetRegionId())), IsNil)
 	// case4: the bucket version is changed.
 	buckets.Version = 3
-	c.Assert(cluster.processReportBuckets(buckets), IsNil)
+	c.Assert(cluster.processReportBuckets(buckets, cluster.GetRegion(buckets.GetRegionId())), IsNil)
 	c.Assert(cluster.GetRegion(uint64(0)).GetBuckets(), DeepEquals, buckets)
 
 	//case5: region update should inherit buckets.
@@ -860,11 +860,11 @@ func (s *testClusterInfoSuite) TestConcurrentReportBucket(c *C) {
 	c.Assert(failpoint.Enable("github.com/tikv/pd/server/cluster/concurrentBucketHeartbeat", "return(true)"), IsNil)
 	go func() {
 		defer wg.Done()
-		cluster.processReportBuckets(bucket1)
+		cluster.processReportBuckets(bucket1, cluster.GetRegion(bucket1.GetRegionId()))
 	}()
 	time.Sleep(100 * time.Millisecond)
 	c.Assert(failpoint.Disable("github.com/tikv/pd/server/cluster/concurrentBucketHeartbeat"), IsNil)
-	c.Assert(cluster.processReportBuckets(bucket2), IsNil)
+	c.Assert(cluster.processReportBuckets(bucket2, cluster.GetRegion(bucket2.GetRegionId())), IsNil)
 	wg.Wait()
 	c.Assert(cluster.GetRegion(0).GetBuckets(), DeepEquals, bucket1)
 }
