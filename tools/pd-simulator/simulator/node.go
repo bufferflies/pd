@@ -54,7 +54,7 @@ type Node struct {
 }
 
 // NewNode returns a Node.
-func NewNode(s *cases.Store, pdAddr string, ioRate int64) (*Node, error) {
+func NewNode(s *cases.Store, pdAddr string, config *SimConfig) (*Node, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	store := &metapb.Store{
 		Id:      s.ID,
@@ -66,8 +66,8 @@ func NewNode(s *cases.Store, pdAddr string, ioRate int64) (*Node, error) {
 	stats := &info.StoreStats{
 		StoreStats: pdpb.StoreStats{
 			StoreId:   s.ID,
-			Capacity:  s.Capacity,
-			Available: s.Available,
+			Capacity:  uint64(config.RaftStore.Capacity),
+			Available: uint64(config.RaftStore.Available),
 			StartTime: uint32(time.Now().Unix()),
 		},
 	}
@@ -85,7 +85,7 @@ func NewNode(s *cases.Store, pdAddr string, ioRate int64) (*Node, error) {
 		cancel:                   cancel,
 		tasks:                    make(map[uint64]Task),
 		receiveRegionHeartbeatCh: receiveRegionHeartbeatCh,
-		ioRate:                   ioRate * cases.MB,
+		ioRate:                   config.StoreIOMBPerSecond * cases.MB,
 		tick:                     uint64(rand.Intn(storeHeartBeatPeriod)),
 	}, nil
 }
@@ -152,10 +152,14 @@ func (n *Node) stepTask() {
 }
 
 func (n *Node) stepHeartBeat() {
-	if n.tick%storeHeartBeatPeriod == 0 {
+	config := n.raftEngine.storeConfig
+
+	period := uint64(config.RaftStore.StoreHeartBeatInterval.Duration / config.SimTickInterval.Duration)
+	if n.tick%period == 0 {
 		n.storeHeartBeat()
 	}
-	if n.tick%regionHeartBeatPeriod == 0 {
+	period = uint64(config.RaftStore.RegionHeartBeatInterval.Duration / config.SimTickInterval.Duration)
+	if n.tick%period == 0 {
 		n.regionHeartBeat()
 	}
 }
