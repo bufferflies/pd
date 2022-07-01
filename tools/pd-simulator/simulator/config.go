@@ -71,7 +71,7 @@ type RaftStore struct {
 	Capacity                typeutil.ByteSize `toml:"capacity" json:"capacity"`
 	Available               typeutil.ByteSize `toml:"available" json:"available"`
 	RegionHeartBeatInterval typeutil.Duration `toml:"pd-heartbeat-tick-interval" json:"pd-heartbeat-tick-interval"`
-	StoreHeartBeatInterval  typeutil.Duration `toml:"pd-store-heartbeat-tick-interval" json:"pd-heartbeat-tick-interval"`
+	StoreHeartBeatInterval  typeutil.Duration `toml:"pd-store-heartbeat-tick-interval" json:"pd-store-heartbeat-tick-interval"`
 }
 
 // Coprocessor the configuration for coprocessor.

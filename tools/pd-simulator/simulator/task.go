@@ -38,8 +38,11 @@ func responseToTask(resp *pdpb.RegionHeartbeatResponse, r *RaftEngine) Task {
 	region := r.GetRegion(regionID)
 	epoch := resp.GetRegionEpoch()
 
+	if region == nil {
+		return nil
+	}
 	//  change peer
-	if resp.GetChangePeer() != nil {
+	if resp.GetChangePeer() != nil && region != nil {
 		changePeer := resp.GetChangePeer()
 		switch changePeer.GetChangeType() {
 		case eraftpb.ConfChangeType_AddNode:

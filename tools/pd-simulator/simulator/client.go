@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
@@ -42,7 +43,7 @@ type Client interface {
 }
 
 const (
-	pdTimeout             = time.Second
+	pdTimeout             = 5 * time.Second
 	maxInitClusterRetries = 100
 )
 
@@ -254,10 +255,10 @@ func (c *client) Bootstrap(ctx context.Context, store *metapb.Store, region *met
 			ClusterId: c.clusterID,
 		},
 	}
-	resp, err := c.pdClient().IsBootstrapped(ctx, req)
-	if resp.GetBootstrapped() {
-		simutil.Logger.Fatal("failed to bootstrap, server is not clean")
-	}
+	_, err := c.pdClient().IsBootstrapped(ctx, req)
+	// if resp.GetBootstrapped() {
+	// 	simutil.Logger.Fatal("failed to bootstrap, server is not clean")
+	// }
 	if err != nil {
 		return err
 	}
@@ -293,7 +294,7 @@ func (c *client) StoreHeartbeat(ctx context.Context, stats *pdpb.StoreStats) err
 	ctx, cancel := context.WithTimeout(ctx, pdTimeout)
 	resp, err := c.pdClient().StoreHeartbeat(ctx, &pdpb.StoreHeartbeatRequest{
 		Header: c.requestHeader(),
-		Stats:  stats,
+		Stats:  proto.Clone(stats).(*pdpb.StoreStats),
 	})
 	cancel()
 	if err != nil {

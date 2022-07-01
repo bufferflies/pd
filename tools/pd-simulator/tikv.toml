@@ -1,0 +1,8 @@
+sim-tick-interval="1s"
+[raftstore]
+capacity="6TB"
+available="6TB"
+
+[coprocessor]
+region-split-size="10GB"
+region-split-keys=20000000

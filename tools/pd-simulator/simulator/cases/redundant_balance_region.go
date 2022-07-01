@@ -15,20 +15,17 @@
 package cases
 
 import (
-	"time"
-
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/tools/pd-simulator/simulator/info"
 	"github.com/tikv/pd/tools/pd-simulator/simulator/simutil"
-	"go.uber.org/zap"
 )
 
 func newRedundantBalanceRegion() *Case {
 	var simCase Case
 
 	storeNum := simutil.CaseConfigure.StoreNum
-	regionNum := simutil.CaseConfigure.RegionNum * storeNum / 3
+	regionNum := simutil.CaseConfigure.RegionNum * storeNum
 	if storeNum == 0 || regionNum == 0 {
 		storeNum, regionNum = 6, 4000
 	}
@@ -36,21 +33,31 @@ func newRedundantBalanceRegion() *Case {
 	for i := 0; i < storeNum; i++ {
 		if i%2 == 1 {
 			simCase.Stores = append(simCase.Stores, &Store{
-				ID:        IDAllocator.nextID(),
-				Status:    metapb.StoreState_Up,
-				Capacity:  1 * TB,
-				Available: 980 * GB,
-				Version:   "2.1.0",
+				ID:     IDAllocator.nextID(),
+				Status: metapb.StoreState_Up,
+				// Capacity:  1 * TB,
+				// Available: 980 * GB,
+				Version: "2.1.0",
 			})
 		} else {
 			simCase.Stores = append(simCase.Stores, &Store{
-				ID:        IDAllocator.nextID(),
-				Status:    metapb.StoreState_Up,
-				Capacity:  1 * TB,
-				Available: 1 * TB,
-				Version:   "2.1.0",
+				ID:     IDAllocator.nextID(),
+				Status: metapb.StoreState_Up,
+				// Capacity:  1 * TB,
+				// Available: 1 * TB,
+				Version: "2.1.0",
 			})
 		}
+	}
+	// scale out three nodes
+	for i := storeNum; i < storeNum+3; i++ {
+		simCase.Stores = append(simCase.Stores, &Store{
+			ID:     IDAllocator.nextID(),
+			Status: metapb.StoreState_Up,
+			// Capacity:  1 * TB,
+			// Available: 1 * TB,
+			Version: "2.1.0",
+		})
 	}
 
 	for i := 0; i < regionNum; i++ {
@@ -63,35 +70,35 @@ func newRedundantBalanceRegion() *Case {
 			ID:     IDAllocator.nextID(),
 			Peers:  peers,
 			Leader: peers[0],
-			Size:   96 * MB,
-			Keys:   960000,
+			// Size:   96 * MB,
+			// Keys:   960000,
 		})
 	}
 
-	storesLastUpdateTime := make([]int64, storeNum+1)
-	storeLastAvailable := make([]uint64, storeNum+1)
+	// storesLastUpdateTime := make([]int64, storeNum+1)
+	// storeLastAvailable := make([]uint64, storeNum+1)
 	simCase.Checker = func(regions *core.RegionsInfo, stats []info.StoreStats) bool {
-		res := true
-		curTime := time.Now().Unix()
-		storesAvailable := make([]uint64, 0, storeNum+1)
-		for i := 1; i <= storeNum; i++ {
-			available := stats[i].GetAvailable()
-			storesAvailable = append(storesAvailable, available)
-			if curTime-storesLastUpdateTime[i] > 60 {
-				if storeLastAvailable[i] != available {
-					res = false
-				}
-				if stats[i].ToCompactionSize != 0 {
-					res = false
-				}
-				storesLastUpdateTime[i] = curTime
-				storeLastAvailable[i] = available
-			} else {
-				res = false
-			}
-		}
-		simutil.Logger.Info("current counts", zap.Uint64s("storesAvailable", storesAvailable))
-		return res
+		// res := true
+		// curTime := time.Now().Unix()
+		// storesAvailable := make([]uint64, 0, storeNum+1)
+		// for i := 1; i <= storeNum; i++ {
+		// 	available := stats[i].GetAvailable()
+		// 	storesAvailable = append(storesAvailable, available)
+		// 	if curTime-storesLastUpdateTime[i] > 60 {
+		// 		if storeLastAvailable[i] != available {
+		// 			res = false
+		// 		}
+		// 		if stats[i].ToCompactionSize != 0 {
+		// 			res = false
+		// 		}
+		// 		storesLastUpdateTime[i] = curTime
+		// 		storeLastAvailable[i] = available
+		// 	} else {
+		// 		res = false
+		// 	}
+		// }
+		// simutil.Logger.Info("current counts", zap.Uint64s("storesAvailable", storesAvailable))
+		return false
 	}
 	return &simCase
 }
