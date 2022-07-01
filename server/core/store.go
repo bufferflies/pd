@@ -574,10 +574,12 @@ func (s *StoresInfo) SetStore(store *StoreInfo) {
 		if old.GetAddress() != store.GetAddress() {
 			log.Info("store address has changed", zap.String("address", store.GetAddress()), zap.String("old", old.GetAddress()))
 		}
-		labels, _ := json.Marshal(store.GetLabels())
-		oldLabels, _ := json.Marshal(old.GetLabels())
-		if !bytes.Equal(labels, oldLabels) {
-			log.Info("store lable has changed", zap.ByteString("labels", labels), zap.ByteString("old", oldLabels))
+		if len(store.GetLabels()) > 0 && len(store.GetLabels()) > 0 {
+			labels, _ := json.Marshal(store.GetLabels())
+			oldLabels, _ := json.Marshal(old.GetLabels())
+			if !bytes.Equal(labels, oldLabels) {
+				log.Info("store label has changed", zap.Any("labels", labels), zap.ByteString("old", oldLabels))
+			}
 		}
 	}
 
