@@ -16,6 +16,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
@@ -468,6 +469,12 @@ func (s *GrpcServer) GetStore(ctx context.Context, request *pdpb.GetStoreRequest
 	if store == nil {
 		return nil, status.Errorf(codes.Unknown, "invalid store ID %d, not found", storeID)
 	}
+	var label []byte
+	if labels, err := json.Marshal(store.GetLabels()); err == nil {
+		label = labels
+	}
+	log.Info("get store", zap.String("address", store.GetAddress()),
+		zap.ByteString("labels", label))
 	return &pdpb.GetStoreResponse{
 		Header: s.header(),
 		Store:  store.GetMeta(),

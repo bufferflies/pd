@@ -15,6 +15,8 @@
 package core
 
 import (
+	"bytes"
+	"encoding/json"
 	"math"
 	"strings"
 	"time"
@@ -604,6 +606,16 @@ func (s *StoresInfo) GetStore(storeID uint64) *StoreInfo {
 // SetStore sets a StoreInfo with storeID.
 func (s *StoresInfo) SetStore(store *StoreInfo) {
 	s.stores[store.GetID()] = store
+	if old, ok := s.stores[store.GetID()]; ok {
+		if old.GetAddress() != store.GetAddress() {
+			log.Info("store address has changed", zap.String("address", store.GetAddress()), zap.String("old", old.GetAddress()))
+		}
+		labels, _ := json.Marshal(store.GetLabels())
+		oldLabels, _ := json.Marshal(old.GetLabels())
+		if !bytes.Equal(labels, oldLabels) {
+			log.Info("store label has changed", zap.ByteString("labels", labels), zap.ByteString("old", oldLabels))
+		}
+	}
 }
 
 // PauseLeaderTransfer pauses a StoreInfo with storeID.
