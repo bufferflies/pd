@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/tikv/pd/pkg/metricutil"
 	"github.com/tikv/pd/pkg/tempurl"
 	"github.com/tikv/pd/pkg/typeutil"
 	"github.com/tikv/pd/server/config"
@@ -63,7 +64,8 @@ type SimConfig struct {
 	RaftStore          RaftStore   `toml:"raftstore"`
 	Coprocessor        Coprocessor `toml:"coprocessor"`
 	// server
-	ServerConfig *config.Config `toml:"server"`
+	ServerConfig  *config.Config          `toml:"server"`
+	MetricsConfig metricutil.MetricConfig `toml:"metrics-config"`
 }
 
 // RaftStore the configuration for raft store.

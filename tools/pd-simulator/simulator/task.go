@@ -17,32 +17,35 @@ package simulator
 import (
 	"bytes"
 	"fmt"
-	"github.com/tikv/pd/tools/pd-simulator/simulator/cases"
+	"strconv"
+	"time"
 
 	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/tools/pd-analysis/analysis"
+	"github.com/tikv/pd/tools/pd-simulator/simulator/cases"
 )
 
 var (
 	chunkSize                = int64(4 * cases.KB)
 	maxSnapGeneratorPoolSize = uint32(2)
 	maxSnapReceivePoolSize   = uint32(4)
+	compressionRatio         = int64(2)
 )
 
 type snapKind string
 
 const (
-	Generate snapKind = "generator"
-	Receive           = "receive"
+	generate snapKind = "generate"
+	receive           = "receive"
 )
 
 type snapStatus int
 
 const (
-	pending snapStatus = 0
+	pending snapStatus = iota
 	running
 	finished
 )
@@ -91,8 +94,9 @@ func responseToTask(resp *pdpb.RegionHeartbeatResponse, r *RaftEngine) Task {
 				epoch:    epoch,
 				peer:     changePeer.GetPeer(),
 				// This two variables are used to simulate sending and receiving snapshot processes.
-				sendingStat:   &snapshotStat{Generate, region.GetApproximateSize(), pending},
-				receivingStat: &snapshotStat{Receive, region.GetApproximateSize(), pending},
+				sendingStat:   &snapshotStat{regionID, generate, region.GetApproximateSize(), pending, time.Now()},
+				receivingStat: &snapshotStat{regionID, receive, region.GetApproximateSize() / compressionRatio, pending, time.Now()},
+				start:         time.Now(),
 			}
 		}
 	} else if resp.GetTransferLeader() != nil {
@@ -116,9 +120,11 @@ func responseToTask(resp *pdpb.RegionHeartbeatResponse, r *RaftEngine) Task {
 }
 
 type snapshotStat struct {
+	regionID   uint64
 	kind       snapKind
 	remainSize int64
 	status     snapStatus
+	start      time.Time
 }
 
 type mergeRegion struct {
@@ -353,6 +359,7 @@ type addLearner struct {
 	finished      bool
 	sendingStat   *snapshotStat
 	receivingStat *snapshotStat
+	start         time.Time
 }
 
 func (a *addLearner) Desc() string {
@@ -416,20 +423,26 @@ func (a *addLearner) IsFinished() bool {
 }
 
 func processSnapshot(n *Node, stat *snapshotStat, snapshotSize int64) bool {
+	if stat.status == finished {
+		return true
+	}
 	if stat.status == pending {
-		if stat.kind == Generate && n.stats.SendingSnapCount > maxSnapGeneratorPoolSize {
+		if stat.kind == generate && n.stats.SendingSnapCount > maxSnapGeneratorPoolSize {
 			return false
 		}
-		if stat.kind == Receive && n.stats.ReceivingSnapCount > maxSnapGeneratorPoolSize {
+		if stat.kind == receive && n.stats.ReceivingSnapCount > maxSnapReceivePoolSize {
 			return false
 		}
 		stat.status = running
 		// If the statement is true, it will start to send or receive the snapshot.
-		if stat.kind == Generate {
+		if stat.kind == generate {
 			n.stats.SendingSnapCount++
 		} else {
 			n.stats.ReceivingSnapCount++
 		}
+		snapDuration.WithLabelValues(strconv.FormatUint(n.stats.StoreId, 10), string(stat.kind)+"-pending").
+			Observe(time.Since(stat.start).Seconds())
+		stat.start = time.Now()
 	}
 
 	// store should generate/receive snapshot by chunk size.
@@ -443,11 +456,13 @@ func processSnapshot(n *Node, stat *snapshotStat, snapshotSize int64) bool {
 	}
 	if stat.status == running {
 		stat.status = finished
-		if stat.kind == Generate {
+		if stat.kind == generate {
 			n.stats.SendingSnapCount--
 		} else {
 			n.stats.ReceivingSnapCount--
 		}
+		snapDuration.WithLabelValues(strconv.FormatUint(n.stats.StoreId, 10), string(stat.kind)).
+			Observe(time.Since(stat.start).Seconds())
 	}
 	return true
 }

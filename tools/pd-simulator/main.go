@@ -25,6 +25,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/pingcap/log"
+	"github.com/tikv/pd/pkg/metricutil"
 	"github.com/tikv/pd/server"
 	"github.com/tikv/pd/server/api"
 	"github.com/tikv/pd/server/config"
@@ -148,7 +149,7 @@ func simStart(pdAddr string, simCase string, simConfig *simulator.SimConfig, cle
 	}
 
 	tickInterval := simConfig.SimTickInterval.Duration
-
+	metricutil.Push(&simConfig.MetricsConfig)
 	tick := time.NewTicker(tickInterval)
 	defer tick.Stop()
 	sc := make(chan os.Signal, 1)

@@ -1,8 +1,14 @@
 sim-tick-interval="1s"
+store-io-per-second=100
 [raftstore]
 capacity="6TB"
 available="6TB"
 
 [coprocessor]
-region-split-size="10GB"
-region-split-keys=20000000
+region-split-size="512MB"
+region-split-keys=1000000
+
+[metrics-config]
+job="simulator"
+address="http://172.16.4.3:9091"
+interval="15s"
