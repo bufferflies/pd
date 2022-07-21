@@ -5,7 +5,7 @@ capacity="6TB"
 available="6TB"
 
 [coprocessor]
-region-split-size="512MB"
+region-split-size="1024MB"
 region-split-keys=1000000
 
 [metrics-config]
