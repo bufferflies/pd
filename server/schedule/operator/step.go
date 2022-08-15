@@ -153,6 +153,7 @@ func (ap AddPeer) Influence(opInfluence OpInfluence, region *core.RegionInfo) {
 	if ap.IsLightWeight {
 		return
 	}
+	to.AddSnapCost(storelimit.RecvSnapShot, regionSize)
 	to.AdjustStepCost(storelimit.AddPeer, regionSize)
 }
 
@@ -175,8 +176,8 @@ func (ap AddPeer) Timeout(start time.Time, regionSize int64) bool {
 
 // AddLearner is an OpStep that adds a region learner peer.
 type AddLearner struct {
-	ToStore, PeerID uint64
-	IsLightWeight   bool
+	ToStore, PeerID, SendStore uint64
+	IsLightWeight              bool
 }
 
 // ConfVerChanged returns the delta value for version increased by this step.
@@ -229,7 +230,14 @@ func (al AddLearner) Influence(opInfluence OpInfluence, region *core.RegionInfo)
 	if al.IsLightWeight {
 		return
 	}
+	to.AddSnapCost(storelimit.RecvSnapShot, regionSize)
 	to.AdjustStepCost(storelimit.AddPeer, regionSize)
+
+	if al.SendStore == 0 {
+		return
+	}
+	send := opInfluence.GetStoreInfluence(al.SendStore)
+	send.AddSnapCost(storelimit.SendSnapShot, regionSize)
 }
 
 // Timeout returns true if the step is timeout.

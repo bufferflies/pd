@@ -2092,6 +2092,10 @@ func (c *RaftCluster) RemoveStoreLimit(storeID uint64) {
 	for _, limitType := range storelimit.TypeNameValue {
 		c.core.ResetStoreLimit(storeID, limitType)
 	}
+
+	for _, snapType := range storelimit.SnapTypeNameValue {
+		c.core.ResetSnapLimit(storeID, snapType)
+	}
 	delete(cfg.StoreLimit, storeID)
 	c.opt.SetScheduleConfig(cfg)
 	var err error

@@ -21,6 +21,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/tikv/pd/server/config"
 	"github.com/tikv/pd/server/core"
+	"github.com/tikv/pd/server/core/storelimit"
 )
 
 const (
@@ -119,6 +120,8 @@ func (s *storeStatistics) Observe(store *core.StoreInfo, stats *StoresStats) {
 	storeStatusGauge.WithLabelValues(storeAddress, id, "store_available").Set(float64(store.GetAvailable()))
 	storeStatusGauge.WithLabelValues(storeAddress, id, "store_used").Set(float64(store.GetUsedSize()))
 	storeStatusGauge.WithLabelValues(storeAddress, id, "store_capacity").Set(float64(store.GetCapacity()))
+	storeStatusGauge.WithLabelValues(storeAddress, id, "store_recv_used_snapshot_size").Set(float64(store.GetSnapLimit(storelimit.RecvSnapShot).GetUsed()))
+	storeStatusGauge.WithLabelValues(storeAddress, id, "store_send_used_snapshot_size").Set(float64(store.GetSnapLimit(storelimit.SendSnapShot).GetUsed()))
 
 	// Store flows.
 	storeFlowStats := stats.GetRollingStoreStats(store.GetID())
