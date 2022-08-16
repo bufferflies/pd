@@ -24,10 +24,8 @@ import (
 	"time"
 
 	"github.com/pingcap/kvproto/pkg/metapb"
-	"github.com/pingcap/log"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tikv/pd/server/core"
-	"go.uber.org/zap"
 )
 
 const (
@@ -332,8 +330,6 @@ func (o *Operator) TotalInfluence(opInfluence OpInfluence, region *core.RegionIn
 			o.steps[step].Influence(*o.influence, region)
 		}
 	}
-	log.Info("total operator influence",
-		zap.Stringer("influence", o.influence))
 	opInfluence.Add(o.influence)
 	return
 }

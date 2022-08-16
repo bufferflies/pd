@@ -87,6 +87,9 @@ func (s *StoreInfluence) Add(other *StoreInfluence) {
 	for _, v := range storelimit.TypeNameValue {
 		s.addStepCost(v, other.GetStepCost(v))
 	}
+	for _, v := range storelimit.SnapTypeNameValue {
+		s.AddSnapCost(v, other.GetSnapCost(v))
+	}
 }
 
 func (s *StoreInfluence) Sub(other *StoreInfluence) {
@@ -96,6 +99,9 @@ func (s *StoreInfluence) Sub(other *StoreInfluence) {
 	s.LeaderCount -= other.LeaderCount
 	for _, v := range storelimit.TypeNameValue {
 		s.addStepCost(v, -other.GetStepCost(v))
+	}
+	for _, v := range storelimit.SnapTypeNameValue {
+		s.AddSnapCost(v, -other.GetSnapCost(v))
 	}
 }
 

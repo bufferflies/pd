@@ -884,7 +884,9 @@ func NewTotalOpInfluence(operators []*operator.Operator, cluster Cluster) operat
 	for _, op := range operators {
 		AddOpInfluence(op, influence, cluster)
 	}
-
+	log.Info("total operator influence",
+		zap.Uint64("region-id", operators[0].RegionID()),
+		zap.Stringer("influence", influence))
 	return influence
 }
 
@@ -956,6 +958,7 @@ func (oc *OperatorController) ExceedStoreLimit(ops ...*operator.Operator) bool {
 // exceedStoreLimitLocked returns true if the store exceeds the cost limit after adding the operator. Otherwise, returns false.
 func (oc *OperatorController) exceedStoreLimitLocked(ops ...*operator.Operator) bool {
 	opInfluence := NewTotalOpInfluence(ops, oc.cluster)
+
 	for storeID := range opInfluence.StoresInfluence {
 		for _, v := range storelimit.TypeNameValue {
 			stepCost := opInfluence.GetStoreInfluence(storeID).GetStepCost(v)
