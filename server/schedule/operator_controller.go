@@ -473,7 +473,9 @@ func (oc *OperatorController) addOperatorLocked(op *operator.Operator) bool {
 	}
 
 	opInfluence := NewTotalOpInfluence([]*operator.Operator{op}, oc.cluster)
+
 	for storeID := range opInfluence.StoresInfluence {
+
 		store := oc.cluster.GetStore(storeID)
 		if store == nil {
 			log.Info("missing store", zap.Uint64("store-id", storeID))
@@ -487,7 +489,7 @@ func (oc *OperatorController) addOperatorLocked(op *operator.Operator) bool {
 			}
 			storeLimitCostCounter.WithLabelValues(strconv.FormatUint(storeID, 10), n).Add(float64(stepCost) / float64(storelimit.RegionInfluence[v]))
 		}
-
+		//si := opInfluence.GetStoreInfluence(storeID)
 		for n, v := range storelimit.SnapTypeNameValue {
 			snapCost := opInfluence.GetStoreInfluence(storeID).GetSnapCost(v)
 			snapLimit := store.GetSnapLimit(v)

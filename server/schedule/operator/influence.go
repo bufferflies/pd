@@ -15,6 +15,7 @@
 package operator
 
 import (
+	"fmt"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/core/storelimit"
 )
@@ -22,6 +23,21 @@ import (
 // OpInfluence records the influence of the cluster.
 type OpInfluence struct {
 	StoresInfluence map[uint64]*StoreInfluence
+}
+
+func (m OpInfluence) String() string {
+	str := ""
+	for id, influence := range m.StoresInfluence {
+		s := fmt.Sprintf("[store-id:%d,step-cost-add-peer:%d, remove-peer:%d,recv-snap:%d,send-snap:%d]",
+			id,
+			influence.GetStepCost(storelimit.AddPeer),
+			influence.GetStepCost(storelimit.RemovePeer),
+			influence.GetSnapCost(storelimit.RecvSnapShot),
+			influence.GetSnapCost(storelimit.SendSnapShot),
+		)
+		str += s
+	}
+	return str
 }
 
 // NewOpInfluence is the constructor of the OpInfluence.
