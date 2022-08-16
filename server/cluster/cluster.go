@@ -732,6 +732,8 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 	}
 	// Here we will compare the reported regions with the previous hot peers to decide if it is still hot.
 	c.hotStat.CheckReadAsync(statistics.NewCollectUnReportedPeerTask(storeID, regions, interval))
+	storeSnapShotSizeGauge.WithLabelValues(strconv.FormatUint(stats.StoreId, 10), "pending_receiving_size").Set(float64(stats.GetPendingReceivingSize()))
+	storeSnapShotSizeGauge.WithLabelValues(strconv.FormatUint(stats.StoreId, 10), "received_size").Set(float64(stats.GetReceivedSize()))
 	return nil
 }
 
