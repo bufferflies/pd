@@ -473,7 +473,7 @@ func (oc *OperatorController) addOperatorLocked(op *operator.Operator) bool {
 	}
 
 	opInfluence := NewTotalOpInfluence([]*operator.Operator{op}, oc.cluster)
-	log.Info("total operator influence",
+	log.Debug("total operator influence",
 		zap.Uint64("region-id", op.RegionID()),
 		zap.Stringer("influence", opInfluence))
 	for storeID := range opInfluence.StoresInfluence {
@@ -491,17 +491,12 @@ func (oc *OperatorController) addOperatorLocked(op *operator.Operator) bool {
 			}
 			storeLimitCostCounter.WithLabelValues(strconv.FormatUint(storeID, 10), n).Add(float64(stepCost) / float64(storelimit.RegionInfluence[v]))
 		}
-		//si := opInfluence.GetStoreInfluence(storeID)
+
 		for n, v := range storelimit.SnapTypeNameValue {
 			snapCost := opInfluence.GetStoreInfluence(storeID).GetSnapCost(v)
 			snapLimit := store.GetSnapLimit(v)
-			if snapCost <= 0 {
-				log.Warn("snap cost is zero")
-			}
-			if snapLimit == nil {
-				log.Warn("snap limit is nil",
-					zap.Uint64("store-id", storeID),
-					zap.String("type", n))
+			if v == storelimit.SendSnapShot {
+				continue
 			}
 			if snapCost > 0 && snapLimit != nil {
 				log.Info("snapshot size consume",
