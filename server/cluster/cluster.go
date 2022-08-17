@@ -735,7 +735,7 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 	storeSnapShotSizeGauge.WithLabelValues(strconv.FormatUint(stats.StoreId, 10), "unreceived_size").Set(float64(stats.GetUnreceivedSize()))
 	storeSnapShotSizeGauge.WithLabelValues(strconv.FormatUint(stats.StoreId, 10), "received_size").Set(float64(stats.GetReceivedSize()))
 	storeSnapShotSizeGauge.WithLabelValues(strconv.FormatUint(stats.StoreId, 10), "sent_size").Set(float64(stats.GetSentSize()))
-	storeSnapShotSizeGauge.WithLabelValues(strconv.FormatUint(stats.StoreId, 10), "unsent_size").Set(float64(stats.GetUnreceivedSize()))
+	storeSnapShotSizeGauge.WithLabelValues(strconv.FormatUint(stats.StoreId, 10), "unsent_size").Set(float64(stats.GetUnsentSize()))
 	return nil
 }
 
