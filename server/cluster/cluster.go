@@ -735,6 +735,7 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 		op := c.GetOperatorController().FindOperator(stat.GetRegionId())
 		if op == nil {
 			log.Warn("operator not find", zap.Uint64("region-id", stat.GetRegionId()))
+			continue
 		}
 		log.Info("snapshot complete",
 			zap.Uint64("region-id", stat.GetRegionId()),
