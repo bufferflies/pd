@@ -730,12 +730,23 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 		peerInfo := core.NewPeerInfo(peer, loads, interval)
 		c.hotStat.CheckReadAsync(statistics.NewCheckPeerTask(peerInfo, region))
 	}
+
+	for _, stat := range stats.GetSnapshotStats() {
+		op := c.GetOperatorController().FindOperator(stat.GetRegionId())
+		if op == nil {
+			log.Warn("operator not find", zap.Uint64("region-id", stat.GetRegionId()))
+		}
+		log.Info("snapshot complete",
+			zap.Uint64("region-id", stat.GetRegionId()),
+			zap.Uint64("generate-snapshot-sec", stat.GetGenDuration()),
+			zap.Uint64("send_snapshot_sec", stat.GetSendDuation()),
+			zap.Uint64("snapshot-size", stat.GetSnapshotSize()),
+			zap.Duration("takes", *op.GetCost()),
+		)
+
+	}
 	// Here we will compare the reported regions with the previous hot peers to decide if it is still hot.
 	c.hotStat.CheckReadAsync(statistics.NewCollectUnReportedPeerTask(storeID, regions, interval))
-	storeSnapShotSizeGauge.WithLabelValues(strconv.FormatUint(stats.StoreId, 10), "unreceived_size").Set(float64(stats.GetUnreceivedSize()))
-	storeSnapShotSizeGauge.WithLabelValues(strconv.FormatUint(stats.StoreId, 10), "received_size").Set(float64(stats.GetReceivedSize()))
-	storeSnapShotSizeGauge.WithLabelValues(strconv.FormatUint(stats.StoreId, 10), "sent_size").Set(float64(stats.GetSentSize()))
-	storeSnapShotSizeGauge.WithLabelValues(strconv.FormatUint(stats.StoreId, 10), "unsent_size").Set(float64(stats.GetUnsentSize()))
 	return nil
 }
 

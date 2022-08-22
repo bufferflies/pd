@@ -179,4 +179,4 @@ require (
 	sigs.k8s.io/yaml v1.1.0 // indirect
 )
 
-replace github.com/pingcap/kvproto v0.0.0-20220805093305-ab1ee4d521ab => github.com/bufferflies/kvproto v0.0.0-20220817034730-396b14d317f5
+replace github.com/pingcap/kvproto v0.0.0-20220805093305-ab1ee4d521ab => github.com/bufferflies/kvproto v0.0.0-20220822072948-2d22d5ad68c3

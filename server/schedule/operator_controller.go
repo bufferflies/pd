@@ -650,6 +650,19 @@ func (oc *OperatorController) GetOperator(regionID uint64) *operator.Operator {
 	return oc.operators[regionID]
 }
 
+// FindOperator returns the operator include running and completed queue.
+func (oc *OperatorController) FindOperator(regionID uint64) *operator.Operator {
+	oc.RLock()
+	defer oc.Unlock()
+	if op := oc.operators[regionID]; op != nil {
+		return op
+	}
+	if op := oc.opRecords.Get(regionID); op != nil {
+		return op.Operator
+	}
+	return nil
+}
+
 // IsAvailableSend return ture if the store has free size to send snapshot.
 func (oc *OperatorController) IsAvailableSend(storeID uint64) bool {
 	oc.RLock()

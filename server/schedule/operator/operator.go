@@ -290,6 +290,16 @@ func (o *Operator) Check(region *core.RegionInfo) OpStep {
 	return nil
 }
 
+// GetCost return the duration of the operator.
+func (o *Operator) GetCost() *time.Duration {
+	step := atomic.LoadInt32(&o.currentStep)
+	if step <= 0 {
+		return nil
+	}
+	cost := time.Unix(0, o.stepsTime[step-1]).Sub(o.GetStartTime())
+	return &cost
+}
+
 // ConfVerChanged returns the number of confver has consumed by steps
 func (o *Operator) ConfVerChanged(region *core.RegionInfo) (total uint64) {
 	current := atomic.LoadInt32(&o.currentStep)
