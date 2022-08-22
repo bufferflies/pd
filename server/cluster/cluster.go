@@ -737,12 +737,13 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 			log.Warn("operator not find", zap.Uint64("region-id", stat.GetRegionId()))
 			continue
 		}
+
 		log.Info("snapshot complete",
 			zap.Uint64("region-id", stat.GetRegionId()),
 			zap.Uint64("generate-snapshot-sec", stat.GetGenDuration()),
 			zap.Uint64("send_snapshot_sec", stat.GetSendDuation()),
 			zap.Uint64("snapshot-size", stat.GetSnapshotSize()),
-			zap.Duration("takes", *op.GetCost()),
+			zap.Duration("takes", op.GetCost()),
 		)
 
 	}

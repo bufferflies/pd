@@ -291,13 +291,13 @@ func (o *Operator) Check(region *core.RegionInfo) OpStep {
 }
 
 // GetCost return the duration of the operator.
-func (o *Operator) GetCost() *time.Duration {
+func (o *Operator) GetCost() time.Duration {
 	step := atomic.LoadInt32(&o.currentStep)
 	if step <= 0 {
-		return nil
+		return time.Since(o.GetStartTime())
 	}
 	cost := time.Unix(0, o.stepsTime[step-1]).Sub(o.GetStartTime())
-	return &cost
+	return cost
 }
 
 // ConfVerChanged returns the number of confver has consumed by steps
