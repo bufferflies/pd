@@ -653,7 +653,7 @@ func (oc *OperatorController) GetOperator(regionID uint64) *operator.Operator {
 // FindOperator returns the operator include running and completed queue.
 func (oc *OperatorController) FindOperator(regionID uint64) *operator.Operator {
 	oc.RLock()
-	defer oc.Unlock()
+	defer oc.RUnlock()
 	if op := oc.operators[regionID]; op != nil {
 		return op
 	}
