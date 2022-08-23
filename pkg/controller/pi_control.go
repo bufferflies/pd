@@ -14,7 +14,7 @@
 
 package controller
 
-const DEFAULT_ERROR_BUFFER = 20
+const DEFAULT_ERROR_BUFFER = 100
 
 // PIController
 type PIController struct {
