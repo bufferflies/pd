@@ -107,6 +107,7 @@ func (s *StoreInfo) Clone(opts ...StoreCreateOption) *StoreInfo {
 		limiter:             s.limiter,
 		snapLimiter:         s.snapLimiter,
 		minResolvedTS:       s.minResolvedTS,
+		controller:          s.controller,
 	}
 
 	for _, opt := range opts {

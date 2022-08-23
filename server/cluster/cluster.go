@@ -749,6 +749,9 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 		)
 		if step, ok := op.Step(0).(operator.AddLearner); ok {
 			receiver := c.GetStore(step.ToStore)
+			if receiver == nil {
+				continue
+			}
 			e := float64(stat.GetGenDuration()+stat.GetSendDuation())*2 - op.GetCost().Seconds()
 			receiver.Feedback(e)
 			log.Info("snapshot complete",
