@@ -655,7 +655,9 @@ func (oc *OperatorController) FindOperator(regionID uint64) *operator.Operator {
 	oc.RLock()
 	defer oc.RUnlock()
 	if op := oc.operators[regionID]; op != nil {
-		return op
+		if _, ok := op.Step(0).(operator.AddLearner); ok {
+			return op
+		}
 	}
 	if op := oc.opRecords.Get(regionID); op != nil {
 		return op.Operator

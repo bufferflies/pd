@@ -734,7 +734,7 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 
 	for _, stat := range stats.GetSnapshotStats() {
 		op := c.GetOperatorController().FindOperator(stat.GetRegionId())
-		if op == nil || op.Step(0) != nil {
+		if op == nil || op.Step(0) == nil {
 			log.Warn("operator not find", zap.Uint64("region-id", stat.GetRegionId()))
 			continue
 		}
@@ -745,11 +745,21 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 			zap.Uint64("send_snapshot_sec", stat.GetSendDuation()),
 			zap.Uint64("snapshot-size", stat.GetSnapshotSize()),
 			zap.Duration("takes", op.GetCost()),
+			zap.Stringer("step", op.Step(0)),
 		)
-		if step, ok := op.Step(0).(*operator.AddLearner); ok {
+		if step, ok := op.Step(0).(operator.AddLearner); ok {
 			receiver := c.GetStore(step.ToStore)
-			err := float64(stat.GetGenDuration()+stat.GetSendDuation())*2 - op.GetCost().Seconds()
-			receiver.Feedback(err)
+			e := float64(stat.GetGenDuration()+stat.GetSendDuation())*2 - op.GetCost().Seconds()
+			receiver.Feedback(e)
+			log.Info("snapshot complete",
+				zap.Uint64("region-id", stat.GetRegionId()),
+				zap.Uint64("generate-snapshot-sec", stat.GetGenDuration()),
+				zap.Uint64("send_snapshot_sec", stat.GetSendDuation()),
+				zap.Uint64("snapshot-size", stat.GetSnapshotSize()),
+				zap.Duration("takes", op.GetCost()),
+				zap.Stringer("step", op.Step(0)),
+				zap.Float64("error", e),
+			)
 		}
 
 	}
