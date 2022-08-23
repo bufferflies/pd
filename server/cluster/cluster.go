@@ -17,6 +17,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"github.com/tikv/pd/server/schedule/operator"
 	"math"
 	"net/http"
 	"strconv"
@@ -733,7 +734,7 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 
 	for _, stat := range stats.GetSnapshotStats() {
 		op := c.GetOperatorController().FindOperator(stat.GetRegionId())
-		if op == nil {
+		if op == nil || op.Step(0) != nil {
 			log.Warn("operator not find", zap.Uint64("region-id", stat.GetRegionId()))
 			continue
 		}
@@ -745,6 +746,11 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 			zap.Uint64("snapshot-size", stat.GetSnapshotSize()),
 			zap.Duration("takes", op.GetCost()),
 		)
+		if step, ok := op.Step(0).(*operator.AddLearner); ok {
+			receiver := c.GetStore(step.ToStore)
+			err := float64(stat.GetGenDuration()+stat.GetSendDuation())*2 - op.GetCost().Seconds()
+			receiver.Feedback(err)
+		}
 
 	}
 	// Here we will compare the reported regions with the previous hot peers to decide if it is still hot.

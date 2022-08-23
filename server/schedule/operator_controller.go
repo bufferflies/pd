@@ -1025,16 +1025,17 @@ func (oc *OperatorController) getOrCreateStoreLimit(storeID uint64, limitType st
 
 func (oc *OperatorController) getOrCreateSnapLimit(storeID uint64, snapType storelimit.SnapType) *storelimit.SlidingWindows {
 	s := oc.cluster.GetStore(storeID)
-	cap := oc.cluster.GetOpts().GetSendSnapshotSize()
+
 	if s == nil {
 		log.Error("invalid store ID", zap.Uint64("store-id", storeID))
 		return nil
 	}
 	if s.GetSnapLimit(snapType) == nil {
-		oc.cluster.GetBasicCluster().ResetSnapLimit(storeID, snapType, cap)
+		oc.cluster.GetBasicCluster().ResetSnapLimit(storeID, snapType, 1000)
 	}
-	if limit := s.GetSnapLimit(snapType); cap != limit.GetCapacity() {
-		limit.Adjust(cap)
-	}
+	//cap := oc.cluster.GetOpts().GetSendSnapshotSize()
+	//if limit := s.GetSnapLimit(snapType); cap != limit.GetCapacity() {
+	//	limit.Adjust(cap)
+	//}
 	return s.GetSnapLimit(snapType)
 }

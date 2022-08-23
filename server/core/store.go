@@ -15,6 +15,7 @@
 package core
 
 import (
+	"github.com/tikv/pd/pkg/controller"
 	"math"
 	"strings"
 	"time"
@@ -59,6 +60,7 @@ type StoreInfo struct {
 	regionWeight        float64
 	limiter             map[storelimit.Type]*storelimit.StoreLimit
 	snapLimiter         map[storelimit.SnapType]*storelimit.SlidingWindows
+	controller          *controller.PIController
 	minResolvedTS       uint64
 }
 
@@ -71,6 +73,7 @@ func NewStoreInfo(store *metapb.Store, opts ...StoreCreateOption) *StoreInfo {
 		regionWeight:  1.0,
 		limiter:       make(map[storelimit.Type]*storelimit.StoreLimit),
 		snapLimiter:   make(map[storelimit.SnapType]*storelimit.SlidingWindows),
+		controller:    controller.NewPIController(10.0, 5.0),
 		minResolvedTS: 0,
 	}
 	for _, opt := range opts {
@@ -130,6 +133,7 @@ func (s *StoreInfo) ShallowClone(opts ...StoreCreateOption) *StoreInfo {
 		limiter:             s.limiter,
 		snapLimiter:         s.snapLimiter,
 		minResolvedTS:       s.minResolvedTS,
+		controller:          s.controller,
 	}
 
 	for _, opt := range opts {
@@ -502,6 +506,16 @@ func (s *StoreInfo) ResourceWeight(kind ResourceKind) float64 {
 	default:
 		return 0
 	}
+}
+
+// Feedback
+func (s *StoreInfo) Feedback(error float64) {
+	cap := s.controller.AddError(error)
+	var windows *storelimit.SlidingWindows
+	if windows = s.GetSnapLimit(storelimit.RecvSnapShot); windows == nil {
+		windows = storelimit.NewSlidingWindows(1000)
+	}
+	windows.Adjust(int64(cap))
 }
 
 // GetStartTime returns the start timestamp.
