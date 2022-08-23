@@ -73,7 +73,7 @@ func NewStoreInfo(store *metapb.Store, opts ...StoreCreateOption) *StoreInfo {
 		regionWeight:  1.0,
 		limiter:       make(map[storelimit.Type]*storelimit.StoreLimit),
 		snapLimiter:   make(map[storelimit.SnapType]*storelimit.SlidingWindows),
-		controller:    controller.NewPIController(100.0, 50.0),
+		controller:    controller.NewPIController(20.0, 10.0),
 		minResolvedTS: 0,
 	}
 	for _, opt := range opts {

@@ -36,8 +36,8 @@ func NewPIController(proportion, integral float64) *PIController {
 
 // AddError
 func (p *PIController) AddError(err float64) float64 {
-	old := p.inflight.Add(err)
-	p.lastSum = p.lastSum + err - old
+	//old := p.inflight.Add(err)
+	p.lastSum = p.lastSum + err
 	return p.proportion*err + p.integral*p.lastSum
 }
 
