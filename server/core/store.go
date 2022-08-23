@@ -516,6 +516,9 @@ func (s *StoreInfo) Feedback(error float64) {
 	if windows = s.GetSnapLimit(storelimit.RecvSnapShot); windows == nil {
 		windows = storelimit.NewSlidingWindows(1000)
 	}
+	if cap < 1000 {
+		cap = 1000
+	}
 	windows.Adjust(int64(cap))
 }
 
