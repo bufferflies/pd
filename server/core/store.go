@@ -511,11 +511,16 @@ func (s *StoreInfo) ResourceWeight(kind ResourceKind) float64 {
 
 // Feedback
 func (s *StoreInfo) Feedback(error float64) {
-	cap := s.controller.AddError(error)
+
 	var windows *storelimit.SlidingWindows
 	if windows = s.GetSnapLimit(storelimit.RecvSnapShot); windows == nil {
 		windows = storelimit.NewSlidingWindows(1000)
 	}
+	if windows.Available(0) {
+		log.Info("windows has more size", zap.Int64("used", windows.GetUsed()), zap.Int64("cap", windows.GetCapacity()))
+		return
+	}
+	cap := s.controller.AddError(error)
 	if cap < 1000 {
 		cap = 1000
 	}

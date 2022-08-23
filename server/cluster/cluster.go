@@ -739,14 +739,6 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 			continue
 		}
 
-		log.Info("snapshot complete",
-			zap.Uint64("region-id", stat.GetRegionId()),
-			zap.Uint64("generate-snapshot-sec", stat.GetGenDuration()),
-			zap.Uint64("send_snapshot_sec", stat.GetSendDuation()),
-			zap.Uint64("snapshot-size", stat.GetSnapshotSize()),
-			zap.Duration("takes", op.GetCost()),
-			zap.Stringer("step", op.Step(0)),
-		)
 		if step, ok := op.Step(0).(operator.AddLearner); ok {
 			receiver := c.GetStore(step.ToStore)
 			if receiver == nil {
