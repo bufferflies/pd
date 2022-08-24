@@ -64,6 +64,7 @@ import (
 var (
 	// DefaultMinResolvedTSPersistenceInterval is the default value of min resolved ts persistence interval.
 	DefaultMinResolvedTSPersistenceInterval = 10 * time.Second
+	DefaultLimit                            = storelimit.SendSnapShot
 )
 
 // regionLabelGCInterval is the interval to run region-label's GC work.
@@ -740,12 +741,18 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 		}
 
 		if step, ok := op.Step(0).(operator.AddLearner); ok {
-			receiver := c.GetStore(step.ToStore)
-			if receiver == nil {
+			var store *core.StoreInfo
+			if DefaultLimit == storelimit.RecvSnapShot {
+				store = c.GetStore(step.ToStore)
+			} else {
+				store = c.GetStore(step.SendStore)
+			}
+
+			if store == nil {
 				continue
 			}
 			e := float64(stat.GetGenDuration()+stat.GetSendDuation())*2 - op.GetCost().Seconds()
-			receiver.Feedback(e)
+			store.Feedback(e, DefaultLimit)
 			log.Info("snapshot complete",
 				zap.Uint64("region-id", stat.GetRegionId()),
 				zap.Uint64("generate-snapshot-sec", stat.GetGenDuration()),
@@ -753,8 +760,12 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 				zap.Uint64("snapshot-size", stat.GetSnapshotSize()),
 				zap.Duration("takes", op.GetCost()),
 				zap.Stringer("step", op.Step(0)),
+				zap.Uint64("leader", step.SendStore),
+				zap.Uint64("to-store", step.ToStore),
+				zap.Stringer("default-limit", DefaultLimit),
 				zap.Float64("error", e),
 			)
+			storeErrorGauge.WithLabelValues(strconv.FormatUint(step.ToStore, 10)).Add(e)
 		}
 
 	}

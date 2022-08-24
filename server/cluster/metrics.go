@@ -127,6 +127,14 @@ var (
 			Name:      "size",
 			Help:      "Indicate the snapshot report size",
 		}, []string{"store", "type"})
+
+	storeErrorGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "pd",
+			Subsystem: "store",
+			Name:      "error",
+			Help:      "the error of store",
+		}, []string{"store"})
 )
 
 func init() {
@@ -144,4 +152,5 @@ func init() {
 	prometheus.MustRegister(storesETAGauge)
 	prometheus.MustRegister(storeSyncConfigEvent)
 	prometheus.MustRegister(storeSnapShotSizeGauge)
+	prometheus.MustRegister(storeErrorGauge)
 }
