@@ -749,6 +749,9 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 			}
 
 			if store == nil {
+				log.Warn("store is nil",
+					zap.Uint64("send-store-id", step.SendStore),
+					zap.Uint64("recv-store-id", step.ToStore))
 				continue
 			}
 			e := float64(stat.GetGenDuration()+stat.GetSendDuation())*2 - op.GetCost().Seconds()
