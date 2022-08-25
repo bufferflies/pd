@@ -747,6 +747,14 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 			} else {
 				store = c.GetStore(step.SendStore)
 			}
+
+			if DefaultLimit == storelimit.RecvSnapShot && step.SendStore == stats.GetStoreId() {
+				continue
+			}
+			if DefaultLimit == storelimit.SendSnapShot && step.ToStore == stats.GetStoreId() {
+				continue
+			}
+
 			e := float64(stat.GetGenDuration()+stat.GetSendDuation())*2 - op.GetCost().Seconds()
 			store.Feedback(e, DefaultLimit)
 			log.Info("snapshot complete",
