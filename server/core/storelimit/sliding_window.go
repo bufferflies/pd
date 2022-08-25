@@ -18,7 +18,10 @@ import (
 	"github.com/tikv/pd/pkg/syncutil"
 )
 
-const snapSize = 10
+const (
+	snapSize     = 10
+	DefaultLimit = RecvSnapShot
+)
 
 type SnapType int
 

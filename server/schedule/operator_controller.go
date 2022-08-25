@@ -495,10 +495,7 @@ func (oc *OperatorController) addOperatorLocked(op *operator.Operator) bool {
 		for n, v := range storelimit.SnapTypeNameValue {
 			snapCost := opInfluence.GetStoreInfluence(storeID).GetSnapCost(v)
 			snapLimit := store.GetSnapLimit(v)
-			//if v == storelimit.SendSnapShot {
-			//	continue
-			//}
-			if v == storelimit.RecvSnapShot {
+			if v != storelimit.DefaultLimit {
 				continue
 			}
 			if snapCost > 0 && snapLimit != nil {
@@ -997,6 +994,9 @@ func (oc *OperatorController) exceedStoreLimitLocked(ops ...*operator.Operator) 
 		for _, v := range storelimit.SnapTypeNameValue {
 			snapCost := opInfluence.GetStoreInfluence(storeID).GetSnapCost(v)
 			if snapCost == 0 {
+				continue
+			}
+			if v != storelimit.DefaultLimit {
 				continue
 			}
 			limit := oc.getOrCreateSnapLimit(storeID, v)
