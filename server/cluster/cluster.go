@@ -747,19 +747,14 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 			} else {
 				store = c.GetStore(step.SendStore)
 			}
-
-			if store == nil {
-				log.Warn("store is nil",
-					zap.Uint64("send-store-id", step.SendStore),
-					zap.Uint64("recv-store-id", step.ToStore))
-				continue
-			}
 			e := float64(stat.GetGenDuration()+stat.GetSendDuation())*2 - op.GetCost().Seconds()
 			store.Feedback(e, DefaultLimit)
 			log.Info("snapshot complete",
+				zap.Uint64("store-id", stats.GetStoreId()),
 				zap.Uint64("region-id", stat.GetRegionId()),
 				zap.Uint64("generate-snapshot-sec", stat.GetGenDuration()),
 				zap.Uint64("send_snapshot_sec", stat.GetSendDuation()),
+				zap.Uint64("apply-snapshot-sec", stat.GetApplyDuration()),
 				zap.Uint64("snapshot-size", stat.GetSnapshotSize()),
 				zap.Duration("takes", op.GetCost()),
 				zap.Stringer("step", op.Step(0)),
