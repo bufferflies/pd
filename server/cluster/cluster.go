@@ -733,7 +733,7 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 	}
 
 	for _, stat := range stats.GetSnapshotStats() {
-		e := (stat.GetSendMs()+stat.GetGenerateMs())*2 - stat.GetTotalMs()
+		e := int64(stat.GetSendMs()+stat.GetGenerateMs())*2 - int64(stat.GetTotalMs())
 		log.Info("snapshot complete",
 			zap.Uint64("store-id", stats.GetStoreId()),
 			zap.Uint64("region-id", stat.GetRegionId()),
@@ -742,7 +742,7 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 			zap.Uint64("transport-size", stat.GetTransportSize()),
 			zap.Uint64("takes", stat.GetTotalMs()),
 			zap.Stringer("default-limit", storelimit.DefaultLimit),
-			zap.Uint64("error", e),
+			zap.Int64("error", e),
 		)
 
 		store.Feedback(float64(e), storelimit.DefaultLimit)
