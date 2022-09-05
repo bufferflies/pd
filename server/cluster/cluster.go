@@ -17,7 +17,6 @@ package cluster
 import (
 	"context"
 	"fmt"
-	"github.com/tikv/pd/server/schedule/operator"
 	"math"
 	"net/http"
 	"strconv"
@@ -733,41 +732,20 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 	}
 
 	for _, stat := range stats.GetSnapshotStats() {
-		op := c.GetOperatorController().FindOperator(stat.GetRegionId())
-		if op == nil || op.Step(0) == nil {
-			log.Warn("operator not find", zap.Uint64("region-id", stat.GetRegionId()))
-			continue
-		}
+		e := (stat.GetSendMs()+stat.GetGenerateMs())*2 - stat.GetTotalMs()
+		log.Info("snapshot complete",
+			zap.Uint64("store-id", stats.GetStoreId()),
+			zap.Uint64("region-id", stat.GetRegionId()),
+			zap.Uint64("generate-snapshot-sec", stat.GetGenerateMs()),
+			zap.Uint64("send-snapshot-sec", stat.GetSendMs()),
+			zap.Uint64("transport-size", stat.GetTransportSize()),
+			zap.Uint64("takes", stat.GetTotalMs()),
+			zap.Stringer("default-limit", storelimit.DefaultLimit),
+			zap.Uint64("error", e),
+		)
 
-		if step, ok := op.Step(0).(operator.AddLearner); ok {
-			var store *core.StoreInfo
-			if storelimit.DefaultLimit == storelimit.RecvSnapShot {
-				store = c.GetStore(step.ToStore)
-			} else {
-				store = c.GetStore(step.SendStore)
-			}
-			if store == nil || stat.GetGenDuration() <= 0 {
-				continue
-			}
-			e := float64(stat.GetGenDuration()+stat.GetSendDuation())*2 - op.GetCost().Seconds()
-			log.Info("snapshot complete",
-				zap.Uint64("store-id", stats.GetStoreId()),
-				zap.Uint64("region-id", stat.GetRegionId()),
-				zap.Uint64("generate-snapshot-sec", stat.GetGenDuration()),
-				zap.Uint64("send_snapshot_sec", stat.GetSendDuation()),
-				zap.Uint64("apply-snapshot-sec", stat.GetApplyDuration()),
-				zap.Uint64("snapshot-size", stat.GetSnapshotSize()),
-				zap.Duration("takes", op.GetCost()),
-				zap.Stringer("step", op.Step(0)),
-				zap.Uint64("leader", step.SendStore),
-				zap.Uint64("to-store", step.ToStore),
-				zap.Stringer("default-limit", storelimit.DefaultLimit),
-				zap.Float64("error", e),
-			)
-
-			store.Feedback(e, storelimit.DefaultLimit)
-			storeErrorGauge.WithLabelValues(strconv.FormatUint(step.ToStore, 10)).Add(e)
-		}
+		store.Feedback(float64(e), storelimit.DefaultLimit)
+		storeErrorGauge.WithLabelValues(strconv.FormatUint(store.GetID(), 10)).Add(float64(e))
 
 	}
 	// Here we will compare the reported regions with the previous hot peers to decide if it is still hot.
