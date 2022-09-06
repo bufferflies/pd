@@ -82,6 +82,7 @@ const (
 	persistLimitWaitTime   = 100 * time.Millisecond
 	removingAction         = "removing"
 	preparingAction        = "preparing"
+	minTolerateDurationSec = 10
 )
 
 // Server is the interface for cluster.
@@ -733,14 +734,18 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 	}
 
 	for _, stat := range stats.GetSnapshotStats() {
-		e := int64(stat.GetSendMs()+stat.GetGenerateMs())*2 - int64(stat.GetTotalMs())
+		dur := stat.GetSendDurationSec() + stat.GetGenerateDurationSec()
+		if dur < minTolerateDurationSec {
+			dur = minTolerateDurationSec
+		}
+		e := int64(dur)*2 - int64(stat.GetTotalDurationSec())
 		log.Info("snapshot complete",
 			zap.Uint64("store-id", stats.GetStoreId()),
 			zap.Uint64("region-id", stat.GetRegionId()),
-			zap.Uint64("generate-snapshot-sec", stat.GetGenerateMs()),
-			zap.Uint64("send-snapshot-sec", stat.GetSendMs()),
+			zap.Uint64("generate-snapshot-sec", stat.GetGenerateDurationSec()),
+			zap.Uint64("send-snapshot-sec", stat.GetSendDurationSec()),
+			zap.Uint64("takes", stat.GetTotalDurationSec()),
 			zap.Uint64("transport-size", stat.GetTransportSize()),
-			zap.Uint64("takes", stat.GetTotalMs()),
 			zap.Stringer("default-limit", storelimit.DefaultLimit),
 			zap.Int64("error", e),
 		)
