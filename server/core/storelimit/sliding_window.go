@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	snapSize     = 10
-	DefaultLimit = RecvSnapShot
+	snapSize         = 10
+	DefaultSnapLimit = SendSnapShot
 )
 
 type SnapType int
