@@ -137,8 +137,14 @@ func (s *testRuleCheckerSuite) TestFixPeer(c *C) {
 	s.cluster.AddLeaderStore(2, 1)
 	s.cluster.AddLeaderStore(3, 1)
 	s.cluster.AddLeaderStore(4, 1)
+	// no Leader
 	s.cluster.AddLeaderRegionWithRange(1, "", "", 1, 2, 3)
 	op := s.rc.Check(s.cluster.GetRegion(1))
+	c.Assert(op, IsNil)
+
+	// has Leader
+	s.cluster.AddLeaderRegionWithRange(1, "", "", 1, 2, 3)
+	op = s.rc.Check(s.cluster.GetRegion(1))
 	c.Assert(op, IsNil)
 	s.cluster.SetStoreDown(2)
 	r := s.cluster.GetRegion(1)
