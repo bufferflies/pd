@@ -243,7 +243,7 @@ func (c *RuleChecker) fixLooseMatchPeer(region *core.RegionInfo, fit *placement.
 	if region.GetLeader().GetId() != peer.GetId() && rf.Rule.Role == placement.Leader {
 		checkerCounter.WithLabelValues("rule_checker", "fix-leader-role").Inc()
 		if c.allowLeader(fit, peer) {
-			log.Info("rule check fix leader-role", zap.Uint64("region-id", region.GetID()), zap.uint64("dst-store", peer.GetStoreID()), zap.uint64("src-store", region.GetLeader().GetStoreID()))
+			log.Info("rule check fix leader-role", zap.Uint64("region-id", region.GetID()), zap.Uint64("dst-store", peer.GetStoreId()), zap.Uint64("src-store", region.GetLeader().GetStoreId()))
 			return operator.CreateTransferLeaderOperator("fix-leader-role", c.cluster, region, region.GetLeader().GetStoreId(), peer.GetStoreId(), []uint64{}, 0)
 		}
 		log.Info("rule check fix leader role failed", zap.Uint64("region-id", region.GetID()))
