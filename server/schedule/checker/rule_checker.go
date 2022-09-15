@@ -79,6 +79,9 @@ func (c *RuleChecker) Check(region *core.RegionInfo) *operator.Operator {
 
 // CheckWithFit is similar with Checker with placement.RegionFit
 func (c *RuleChecker) CheckWithFit(region *core.RegionInfo, fit *placement.RegionFit) (op *operator.Operator) {
+	log.Info("check region with fit",
+		zap.Uint64("region-id", region.GetID()),
+		zap.Stringer("fit", fit))
 	// checker is paused
 	if c.IsPaused() {
 		checkerCounter.WithLabelValues("rule_checker", "paused").Inc()
@@ -247,8 +250,20 @@ func (c *RuleChecker) fixLooseMatchPeer(region *core.RegionInfo, fit *placement.
 	if region.GetLeader().GetId() != peer.GetId() && rf.Rule.Role == placement.Leader {
 		checkerCounter.WithLabelValues("rule_checker", "fix-leader-role").Inc()
 		if c.allowLeader(fit, peer) {
+			log.Info("fix leader role success",
+				zap.Uint64("region-id", region.GetID()),
+				zap.Uint64("peer-id", peer.GetId()),
+				zap.Uint64("src-store", region.GetLeader().GetStoreId()),
+				zap.Uint64("dst-store", peer.GetStoreId()),
+				zap.Stringer("rule-fit", rf))
 			return operator.CreateTransferLeaderOperator("fix-leader-role", c.cluster, region, region.GetLeader().GetStoreId(), peer.GetStoreId(), []uint64{}, 0)
 		}
+		log.Info("fix leader role failed, because the peer is not allowed to be leader",
+			zap.Uint64("region-id", region.GetID()),
+			zap.Uint64("peer-id", peer.GetId()),
+			zap.Uint64("src-store", region.GetLeader().GetStoreId()),
+			zap.Uint64("dst-store", peer.GetStoreId()),
+			zap.Stringer("rule-fit", rf))
 		checkerCounter.WithLabelValues("rule_checker", "not-allow-leader")
 		return nil, errPeerCannotBeLeader
 	}

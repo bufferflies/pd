@@ -15,6 +15,7 @@
 package placement
 
 import (
+	"fmt"
 	"math"
 	"sort"
 
@@ -35,6 +36,14 @@ type RegionFit struct {
 	OrphanPeers  []*metapb.Peer
 	regionStores []*core.StoreInfo
 	rules        []*Rule
+}
+
+func (f *RegionFit) String() string {
+	fits := ""
+	for fit := range f.RuleFits {
+		fits += fmt.Sprintf("{%s}", fit)
+	}
+	return fits
 }
 
 // SetCached indicates this RegionFit is fetch form cache
@@ -115,6 +124,18 @@ type RuleFit struct {
 	// IsolationScore indicates at which level of labeling these Peers are
 	// isolated. A larger value is better.
 	IsolationScore float64
+}
+
+func (f *RuleFit) String() string {
+	peers := ""
+	for _, p := range f.Peers {
+		peers += fmt.Sprintf("{peer-id:%d,role:%s,store-id:%d}", p.GetId(), p.GetRole(), p.GetStoreId())
+	}
+	differentRoles := ""
+	for _, p := range f.PeersWithDifferentRole {
+		differentRoles += fmt.Sprintf("{peer-id:%d,role:%s,store-id:%d}", p.GetId(), p.GetRole(), p.GetStoreId())
+	}
+	return fmt.Sprintf("{rule-id:%d,peers:%s,different-peers:%s}", f.Rule.ID, peers, differentRoles)
 }
 
 // IsSatisfied returns if the rule is properly satisfied.

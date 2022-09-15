@@ -16,6 +16,8 @@ package checker
 
 import (
 	"context"
+	"github.com/prometheus/common/log"
+	"go.uber.org/zap"
 	"time"
 
 	"github.com/tikv/pd/pkg/cache"
@@ -83,6 +85,7 @@ func (c *Controller) CheckRegion(region *core.RegionInfo) []*operator.Operator {
 	if cl, ok := c.cluster.(interface{ GetRegionLabeler() *labeler.RegionLabeler }); ok {
 		l := cl.GetRegionLabeler()
 		if l.ScheduleDisabled(region) {
+			log.Info("region disable scheduled", zap.Uint64("region-id", region.GetID()))
 			return nil
 		}
 	}
