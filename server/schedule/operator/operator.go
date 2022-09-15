@@ -17,6 +17,7 @@ package operator
 import (
 	"encoding/json"
 	"fmt"
+
 	"reflect"
 	"strings"
 	"sync/atomic"
@@ -56,6 +57,7 @@ type Operator struct {
 	FinishedCounters []prometheus.Counter
 	AdditionalInfos  map[string]string
 	ApproximateSize  int64
+	influence        *OpInfluence
 }
 
 // NewOperator creates a new operator.
@@ -288,6 +290,16 @@ func (o *Operator) Check(region *core.RegionInfo) OpStep {
 	return nil
 }
 
+// GetCost return the duration of the operator.
+func (o *Operator) GetCost() time.Duration {
+	step := atomic.LoadInt32(&o.currentStep)
+	if step <= 0 {
+		return time.Since(o.GetStartTime())
+	}
+	cost := time.Unix(0, o.stepsTime[step-1]).Sub(o.GetStartTime())
+	return cost
+}
+
 // ConfVerChanged returns the number of confver has consumed by steps
 func (o *Operator) ConfVerChanged(region *core.RegionInfo) (total uint64) {
 	current := atomic.LoadInt32(&o.currentStep)
@@ -322,9 +334,19 @@ func (o *Operator) UnfinishedInfluence(opInfluence OpInfluence, region *core.Reg
 
 // TotalInfluence calculates the store difference which whole operator steps make.
 func (o *Operator) TotalInfluence(opInfluence OpInfluence, region *core.RegionInfo) {
-	for step := 0; step < len(o.steps); step++ {
-		o.steps[step].Influence(opInfluence, region)
+	if o.influence == nil {
+		o.influence = NewOpInfluence()
+		for step := 0; step < len(o.steps); step++ {
+			o.steps[step].Influence(*o.influence, region)
+		}
 	}
+	opInfluence.Add(o.influence)
+	return
+}
+
+// HasInfluence returns true if operator's influence has cached.
+func (o *Operator) HasInfluence() bool {
+	return o.influence != nil
 }
 
 // OpHistory is used to log and visualize completed operators.

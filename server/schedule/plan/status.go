@@ -43,6 +43,8 @@ const (
 	StatusStoreAddLimitThrottled
 	// StatusStoreRemoveLimitThrottled represents the store cannot be selected due to the remove peer limitation.
 	StatusStoreRemoveLimitThrottled
+
+	StatusStoreSendSnapShotLimitThrottled
 )
 
 // config limitation

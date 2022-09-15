@@ -15,6 +15,7 @@
 package operator
 
 import (
+	"fmt"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/core/storelimit"
 )
@@ -22,6 +23,40 @@ import (
 // OpInfluence records the influence of the cluster.
 type OpInfluence struct {
 	StoresInfluence map[uint64]*StoreInfluence
+}
+
+func (m OpInfluence) String() string {
+	str := ""
+	for id, influence := range m.StoresInfluence {
+		s := fmt.Sprintf("[store-id:%d,step-cost-add-peer:%d, remove-peer:%d,recv-snap:%d,send-snap:%d]",
+			id,
+			influence.GetStepCost(storelimit.AddPeer),
+			influence.GetStepCost(storelimit.RemovePeer),
+			influence.GetSnapCost(storelimit.RecvSnapShot),
+			influence.GetSnapCost(storelimit.SendSnapShot),
+		)
+		str += s
+	}
+	return str
+}
+
+// NewOpInfluence is the constructor of the OpInfluence.
+func NewOpInfluence() *OpInfluence {
+	return &OpInfluence{StoresInfluence: make(map[uint64]*StoreInfluence)}
+}
+
+// Add adds another influence.
+func (m *OpInfluence) Add(other *OpInfluence) {
+	for id, v := range other.StoresInfluence {
+		m.GetStoreInfluence(id).Add(v)
+	}
+}
+
+// Sub subs another influence.
+func (m *OpInfluence) Sub(other *OpInfluence) {
+	for id, v := range other.StoresInfluence {
+		m.GetStoreInfluence(id).Sub(v)
+	}
 }
 
 // GetStoreInfluence get storeInfluence of specific store.
@@ -41,6 +76,33 @@ type StoreInfluence struct {
 	LeaderSize  int64
 	LeaderCount int64
 	StepCost    map[storelimit.Type]int64
+	SnapCost    map[storelimit.SnapType]int64
+}
+
+func (s *StoreInfluence) Add(other *StoreInfluence) {
+	s.RegionCount += other.RegionCount
+	s.RegionSize += other.RegionSize
+	s.LeaderSize += other.LeaderSize
+	s.LeaderCount += other.LeaderCount
+	for _, v := range storelimit.TypeNameValue {
+		s.addStepCost(v, other.GetStepCost(v))
+	}
+	for _, v := range storelimit.SnapTypeNameValue {
+		s.AddSnapCost(v, other.GetSnapCost(v))
+	}
+}
+
+func (s *StoreInfluence) Sub(other *StoreInfluence) {
+	s.RegionCount -= other.RegionCount
+	s.RegionSize -= other.RegionSize
+	s.LeaderSize -= other.LeaderSize
+	s.LeaderCount -= other.LeaderCount
+	for _, v := range storelimit.TypeNameValue {
+		s.addStepCost(v, -other.GetStepCost(v))
+	}
+	for _, v := range storelimit.SnapTypeNameValue {
+		s.AddSnapCost(v, -other.GetSnapCost(v))
+	}
 }
 
 // ResourceProperty returns delta size of leader/region by influence.
@@ -62,12 +124,28 @@ func (s StoreInfluence) ResourceProperty(kind core.ScheduleKind) int64 {
 	}
 }
 
+// GetSnapCost returns the given snapshot size.
+func (s StoreInfluence) GetSnapCost(snapType storelimit.SnapType) int64 {
+	if s.SnapCost == nil {
+		return 0
+	}
+	return s.SnapCost[snapType]
+}
+
 // GetStepCost returns the specific type step cost
 func (s StoreInfluence) GetStepCost(limitType storelimit.Type) int64 {
 	if s.StepCost == nil {
 		return 0
 	}
 	return s.StepCost[limitType]
+}
+
+// AddSnapCost adds the step cost of specific type store limit according to region size.
+func (s *StoreInfluence) AddSnapCost(limitType storelimit.SnapType, cost int64) {
+	if s.SnapCost == nil {
+		s.SnapCost = make(map[storelimit.SnapType]int64)
+	}
+	s.SnapCost[limitType] += cost
 }
 
 func (s *StoreInfluence) addStepCost(limitType storelimit.Type, cost int64) {

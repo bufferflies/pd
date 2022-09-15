@@ -470,12 +470,13 @@ func (oc *OperatorController) addOperatorLocked(op *operator.Operator) bool {
 		operatorCounter.WithLabelValues(op.Desc(), "unexpected").Inc()
 		return false
 	}
-	oc.operators[regionID] = op
-	operatorCounter.WithLabelValues(op.Desc(), "start").Inc()
-	operatorSizeHist.WithLabelValues(op.Desc()).Observe(float64(op.ApproximateSize))
-	operatorWaitDuration.WithLabelValues(op.Desc()).Observe(op.ElapsedTime().Seconds())
+
 	opInfluence := NewTotalOpInfluence([]*operator.Operator{op}, oc.cluster)
+	log.Debug("total operator influence",
+		zap.Uint64("region-id", op.RegionID()),
+		zap.Stringer("influence", opInfluence))
 	for storeID := range opInfluence.StoresInfluence {
+
 		store := oc.cluster.GetStore(storeID)
 		if store == nil {
 			log.Info("missing store", zap.Uint64("store-id", storeID))
@@ -483,18 +484,31 @@ func (oc *OperatorController) addOperatorLocked(op *operator.Operator) bool {
 		}
 		for n, v := range storelimit.TypeNameValue {
 			storeLimit := store.GetStoreLimit(v)
-			if storeLimit == nil {
-				continue
-			}
 			stepCost := opInfluence.GetStoreInfluence(storeID).GetStepCost(v)
-			if stepCost == 0 {
-				continue
+			if stepCost > 0 && storeLimit != nil {
+				storeLimit.Take(stepCost)
 			}
-			storeLimit.Take(stepCost)
 			storeLimitCostCounter.WithLabelValues(strconv.FormatUint(storeID, 10), n).Add(float64(stepCost) / float64(storelimit.RegionInfluence[v]))
 		}
+
+		for n, v := range storelimit.SnapTypeNameValue {
+			snapCost := opInfluence.GetStoreInfluence(storeID).GetSnapCost(v)
+			snapLimit := store.GetSnapLimit(v)
+			if v != storelimit.DefaultSnapLimit {
+				continue
+			}
+			if snapCost > 0 && snapLimit != nil {
+				log.Info("snapshot size consume",
+					zap.Uint64("store-id", storeID),
+					zap.Int64("snap-size", snapCost),
+					zap.Uint64("region-id", op.RegionID()),
+					zap.String("limit-type", n))
+				snapLimit.Take(snapCost)
+			}
+		}
 	}
-	oc.updateCounts(oc.operators)
+
+	oc.putRunningQueueLocked(op)
 
 	var step operator.OpStep
 	if region := oc.cluster.GetRegion(op.RegionID()); region != nil {
@@ -509,6 +523,15 @@ func (oc *OperatorController) addOperatorLocked(op *operator.Operator) bool {
 		counter.Inc()
 	}
 	return true
+}
+
+func (oc *OperatorController) putRunningQueueLocked(op *operator.Operator) {
+	oc.operators[op.RegionID()] = op
+	oc.counts[op.SchedulerKind()]++
+
+	operatorCounter.WithLabelValues(op.Desc(), "start").Inc()
+	operatorSizeHist.WithLabelValues(op.Desc()).Observe(float64(op.ApproximateSize))
+	operatorWaitDuration.WithLabelValues(op.Desc()).Observe(op.ElapsedTime().Seconds())
 }
 
 // RemoveOperator removes a operator from the running operators.
@@ -538,8 +561,9 @@ func (oc *OperatorController) removeOperatorLocked(op *operator.Operator) bool {
 	regionID := op.RegionID()
 	if cur := oc.operators[regionID]; cur == op {
 		delete(oc.operators, regionID)
-		oc.updateCounts(oc.operators)
+		oc.counts[op.SchedulerKind()]--
 		operatorCounter.WithLabelValues(op.Desc(), "remove").Inc()
+		oc.Ack(op)
 		return true
 	}
 	return false
@@ -605,7 +629,6 @@ func (oc *OperatorController) buryOperator(op *operator.Operator, extraFields ..
 		)
 		operatorCounter.WithLabelValues(op.Desc(), "cancel").Inc()
 	}
-
 	oc.opRecords.Put(op)
 }
 
@@ -624,6 +647,29 @@ func (oc *OperatorController) GetOperator(regionID uint64) *operator.Operator {
 	oc.RLock()
 	defer oc.RUnlock()
 	return oc.operators[regionID]
+}
+
+// FindOperator returns the operator include running and completed queue.
+func (oc *OperatorController) FindOperator(regionID uint64) *operator.Operator {
+	oc.RLock()
+	defer oc.RUnlock()
+	if op := oc.operators[regionID]; op != nil {
+		if _, ok := op.Step(0).(operator.AddLearner); ok {
+			return op
+		}
+	}
+	if op := oc.opRecords.Get(regionID); op != nil {
+		return op.Operator
+	}
+	return nil
+}
+
+// IsAvailableSend return ture if the store has free size to send snapshot.
+func (oc *OperatorController) IsAvailableSend(storeID uint64) bool {
+	oc.RLock()
+	defer oc.RUnlock()
+	store := oc.cluster.GetStore(storeID)
+	return store.IsAvailableSnap(storelimit.SendSnapShot)
 }
 
 // GetOperators gets operators from the running operators.
@@ -665,6 +711,31 @@ func (oc *OperatorController) pushFastOperator(op *operator.Operator) {
 	oc.fastOperators.Put(op.RegionID(), op)
 }
 
+func (oc *OperatorController) Ack(op *operator.Operator) {
+	opInfluence := NewTotalOpInfluence([]*operator.Operator{op}, oc.cluster)
+	for storeID := range opInfluence.StoresInfluence {
+		for _, v := range storelimit.SnapTypeNameValue {
+			snapCost := opInfluence.GetStoreInfluence(storeID).GetSnapCost(v)
+			log.Info("snapshot size will reset",
+				zap.Uint64("store-id", storeID),
+				zap.Int64("snap-size", snapCost),
+				zap.Uint64("region-id", op.RegionID()),
+				zap.Stringer("limit-type", v))
+			if snapCost == 0 {
+				continue
+			}
+			snapLimit := oc.cluster.GetStore(storeID).GetSnapLimit(v)
+			if snapLimit == nil {
+				log.Warn("snap limit should not be nil",
+					zap.Uint64("store-id", storeID),
+					zap.Stringer("limit-type", v))
+				continue
+			}
+			snapLimit.Ack(snapCost)
+		}
+	}
+}
+
 // GetRecords gets operators' records.
 func (oc *OperatorController) GetRecords(from time.Time) []*operator.OpRecord {
 	records := make([]*operator.OpRecord, 0, oc.opRecords.ttl.Len())
@@ -689,16 +760,6 @@ func (oc *OperatorController) GetHistory(start time.Time) []operator.OpHistory {
 		history = append(history, op.History()...)
 	}
 	return history
-}
-
-// updateCounts updates resource counts using current pending operators.
-func (oc *OperatorController) updateCounts(operators map[uint64]*operator.Operator) {
-	for k := range oc.counts {
-		delete(oc.counts, k)
-	}
-	for _, op := range operators {
-		oc.counts[op.SchedulerKind()]++
-	}
 }
 
 // OperatorCount gets the count of operators filtered by kind.
@@ -745,7 +806,7 @@ func (oc *OperatorController) GetFastOpInfluence(cluster Cluster, influence oper
 // AddOpInfluence add operator influence for cluster
 func AddOpInfluence(op *operator.Operator, influence operator.OpInfluence, cluster Cluster) {
 	region := cluster.GetRegion(op.RegionID())
-	if region != nil {
+	if region != nil || op.HasInfluence() {
 		op.TotalInfluence(influence, region)
 	}
 }
@@ -759,7 +820,6 @@ func NewTotalOpInfluence(operators []*operator.Operator, cluster Cluster) operat
 	for _, op := range operators {
 		AddOpInfluence(op, influence, cluster)
 	}
-
 	return influence
 }
 
@@ -767,8 +827,7 @@ func NewTotalOpInfluence(operators []*operator.Operator, cluster Cluster) operat
 func (oc *OperatorController) SetOperator(op *operator.Operator) {
 	oc.Lock()
 	defer oc.Unlock()
-	oc.operators[op.RegionID()] = op
-	oc.updateCounts(oc.operators)
+	oc.putRunningQueueLocked(op)
 }
 
 // OperatorWithStatus records the operator and its status.
@@ -832,17 +891,35 @@ func (oc *OperatorController) ExceedStoreLimit(ops ...*operator.Operator) bool {
 // exceedStoreLimitLocked returns true if the store exceeds the cost limit after adding the operator. Otherwise, returns false.
 func (oc *OperatorController) exceedStoreLimitLocked(ops ...*operator.Operator) bool {
 	opInfluence := NewTotalOpInfluence(ops, oc.cluster)
+
 	for storeID := range opInfluence.StoresInfluence {
 		for _, v := range storelimit.TypeNameValue {
 			stepCost := opInfluence.GetStoreInfluence(storeID).GetStepCost(v)
 			if stepCost == 0 {
 				continue
 			}
-			limiter := oc.getOrCreateStoreLimit(storeID, v)
-			if limiter == nil {
-				return false
+			limit := oc.getOrCreateStoreLimit(storeID, v)
+			if limit == nil {
+				continue
 			}
-			if !limiter.Available(stepCost) {
+			if !limit.Available(stepCost) {
+				return true
+			}
+		}
+
+		for _, v := range storelimit.SnapTypeNameValue {
+			snapCost := opInfluence.GetStoreInfluence(storeID).GetSnapCost(v)
+			if snapCost == 0 {
+				continue
+			}
+			if v != storelimit.DefaultSnapLimit {
+				continue
+			}
+			limit := oc.getOrCreateSnapLimit(storeID, v)
+			if limit == nil {
+				continue
+			}
+			if !limit.Available(snapCost) {
 				return true
 			}
 		}
@@ -865,4 +942,21 @@ func (oc *OperatorController) getOrCreateStoreLimit(storeID uint64, limitType st
 		oc.cluster.GetBasicCluster().ResetStoreLimit(storeID, limitType, ratePerSec)
 	}
 	return s.GetStoreLimit(limitType)
+}
+
+func (oc *OperatorController) getOrCreateSnapLimit(storeID uint64, snapType storelimit.SnapType) *storelimit.SlidingWindows {
+	s := oc.cluster.GetStore(storeID)
+
+	if s == nil {
+		log.Error("invalid store ID", zap.Uint64("store-id", storeID))
+		return nil
+	}
+	if s.GetSnapLimit(snapType) == nil {
+		oc.cluster.GetBasicCluster().ResetSnapLimit(storeID, snapType, 1000)
+	}
+	//cap := oc.cluster.GetOpts().GetSendSnapshotSize()
+	//if limit := s.GetSnapLimit(snapType); cap != limit.GetCapacity() {
+	//	limit.Adjust(cap)
+	//}
+	return s.GetSnapLimit(snapType)
 }

@@ -15,6 +15,7 @@
 package core
 
 import (
+	"github.com/tikv/pd/pkg/controller"
 	"math"
 	"strings"
 	"time"
@@ -57,6 +58,8 @@ type StoreInfo struct {
 	leaderWeight        float64
 	regionWeight        float64
 	limiter             map[storelimit.Type]*storelimit.StoreLimit
+	snapLimiter         map[storelimit.SnapType]*storelimit.SlidingWindows
+	controller          *controller.PIController
 	minResolvedTS       uint64
 }
 
@@ -68,6 +71,8 @@ func NewStoreInfo(store *metapb.Store, opts ...StoreCreateOption) *StoreInfo {
 		leaderWeight:  1.0,
 		regionWeight:  1.0,
 		limiter:       make(map[storelimit.Type]*storelimit.StoreLimit),
+		snapLimiter:   make(map[storelimit.SnapType]*storelimit.SlidingWindows),
+		controller:    controller.NewPIController(20.0, 10.0),
 		minResolvedTS: 0,
 	}
 	for _, opt := range opts {
@@ -99,7 +104,9 @@ func (s *StoreInfo) Clone(opts ...StoreCreateOption) *StoreInfo {
 		leaderWeight:        s.leaderWeight,
 		regionWeight:        s.regionWeight,
 		limiter:             s.limiter,
+		snapLimiter:         s.snapLimiter,
 		minResolvedTS:       s.minResolvedTS,
+		controller:          s.controller,
 	}
 
 	for _, opt := range opts {
@@ -124,7 +131,9 @@ func (s *StoreInfo) ShallowClone(opts ...StoreCreateOption) *StoreInfo {
 		leaderWeight:        s.leaderWeight,
 		regionWeight:        s.regionWeight,
 		limiter:             s.limiter,
+		snapLimiter:         s.snapLimiter,
 		minResolvedTS:       s.minResolvedTS,
+		controller:          s.controller,
 	}
 
 	for _, opt := range opts {
@@ -150,6 +159,18 @@ func (s *StoreInfo) IsAvailable(limitType storelimit.Type) bool {
 	defer s.mu.RUnlock()
 	if s.limiter != nil && s.limiter[limitType] != nil {
 		return s.limiter[limitType].Available(storelimit.RegionInfluence[limitType])
+	}
+	return true
+}
+
+// IsAvailableSnap returns ture if the store have available size.
+func (s *StoreInfo) IsAvailableSnap(snapType storelimit.SnapType) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.snapLimiter != nil && s.snapLimiter[snapType] != nil {
+		isAvailable := s.snapLimiter[snapType].Available(0)
+		return isAvailable
 	}
 	return true
 }
@@ -298,6 +319,13 @@ func (s *StoreInfo) GetStoreLimit(limitType storelimit.Type) *storelimit.StoreLi
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.limiter[limitType]
+}
+
+// GetSnapLimit returns the snapshot limit of the given store.
+func (s *StoreInfo) GetSnapLimit(snapType storelimit.SnapType) *storelimit.SlidingWindows {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.snapLimiter[snapType]
 }
 
 const minWeight = 1e-6
@@ -481,6 +509,24 @@ func (s *StoreInfo) ResourceWeight(kind ResourceKind) float64 {
 	}
 }
 
+// Feedback
+func (s *StoreInfo) Feedback(error float64, snapType storelimit.SnapType) {
+	var windows *storelimit.SlidingWindows
+	if windows = s.GetSnapLimit(snapType); windows == nil {
+		windows = storelimit.NewSlidingWindows(1000)
+		s.snapLimiter[snapType] = windows
+	}
+	if windows.Available(0) {
+		log.Info("windows has more size", zap.Int64("used", windows.GetUsed()), zap.Int64("cap", windows.GetCapacity()))
+		return
+	}
+	cap := s.controller.AddError(error)
+	if cap < 1000 {
+		cap = 1000
+	}
+	windows.Adjust(int64(cap))
+}
+
 // GetStartTime returns the start timestamp.
 func (s *StoreInfo) GetStartTime() time.Time {
 	return time.Unix(s.meta.GetStartTimestamp(), 0)
@@ -660,10 +706,22 @@ func (s *StoresInfo) SlowStoreRecovered(storeID uint64) {
 	s.stores[storeID] = store.Clone(SlowStoreRecovered())
 }
 
+// defaultSnapSize is the default snapshot size of the
+const defaultSnapSize = int64(100 * 10)
+
 // ResetStoreLimit resets the limit for a specific store.
 func (s *StoresInfo) ResetStoreLimit(storeID uint64, limitType storelimit.Type, ratePerSec ...float64) {
 	if store, ok := s.stores[storeID]; ok {
-		s.stores[storeID] = store.Clone(ResetStoreLimit(limitType, ratePerSec...))
+		s.stores[storeID] = store.Clone(
+			ResetStoreLimit(limitType, ratePerSec...))
+	}
+}
+
+// ResetSnapLimit resets the snapshot limit for the given store.
+func (s *StoresInfo) ResetSnapLimit(storeID uint64, snapType storelimit.SnapType, cap ...int64) {
+	if store, ok := s.stores[storeID]; ok {
+		s.stores[storeID] = store.Clone(
+			ResetSnapLimit(snapType, cap...))
 	}
 }
 

@@ -82,6 +82,7 @@ const (
 	persistLimitWaitTime   = 100 * time.Millisecond
 	removingAction         = "removing"
 	preparingAction        = "preparing"
+	minTolerateDurationSec = 5
 )
 
 // Server is the interface for cluster.
@@ -730,6 +731,28 @@ func (c *RaftCluster) HandleStoreHeartbeat(stats *pdpb.StoreStats) error {
 		}
 		peerInfo := core.NewPeerInfo(peer, loads, interval)
 		c.hotStat.CheckReadAsync(statistics.NewCheckPeerTask(peerInfo, region))
+	}
+
+	for _, stat := range stats.GetSnapshotStats() {
+		dur := stat.GetSendDurationSec() + stat.GetGenerateDurationSec()
+		if dur < minTolerateDurationSec {
+			dur = minTolerateDurationSec
+		}
+		e := int64(dur)*2 - int64(stat.GetTotalDurationSec())
+		log.Info("snapshot complete",
+			zap.Uint64("store-id", stats.GetStoreId()),
+			zap.Uint64("region-id", stat.GetRegionId()),
+			zap.Uint64("generate-snapshot-sec", stat.GetGenerateDurationSec()),
+			zap.Uint64("send-snapshot-sec", stat.GetSendDurationSec()),
+			zap.Uint64("takes", stat.GetTotalDurationSec()),
+			zap.Uint64("transport-size", stat.GetTransportSize()),
+			zap.Stringer("default-limit", storelimit.DefaultSnapLimit),
+			zap.Int64("error", e),
+		)
+
+		store.Feedback(float64(e), storelimit.DefaultSnapLimit)
+		storeErrorGauge.WithLabelValues(strconv.FormatUint(store.GetID(), 10)).Add(float64(e))
+
 	}
 	// Here we will compare the reported regions with the previous hot peers to decide if it is still hot.
 	c.hotStat.CheckReadAsync(statistics.NewCollectUnReportedPeerTask(storeID, regions, interval))
@@ -2092,6 +2115,10 @@ func (c *RaftCluster) RemoveStoreLimit(storeID uint64) {
 	cfg := c.opt.GetScheduleConfig().Clone()
 	for _, limitType := range storelimit.TypeNameValue {
 		c.core.ResetStoreLimit(storeID, limitType)
+	}
+
+	for _, snapType := range storelimit.SnapTypeNameValue {
+		c.core.ResetSnapLimit(storeID, snapType)
 	}
 	delete(cfg.StoreLimit, storeID)
 	c.opt.SetScheduleConfig(cfg)
