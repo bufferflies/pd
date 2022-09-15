@@ -40,8 +40,8 @@ type RegionFit struct {
 
 func (f *RegionFit) String() string {
 	fits := ""
-	for fit := range f.RuleFits {
-		fits += fmt.Sprintf("{%s}", fit)
+	for _, fit := range f.RuleFits {
+		fits += fmt.Sprintf("{%s}", fit.String())
 	}
 	return fits
 }
@@ -135,7 +135,7 @@ func (f *RuleFit) String() string {
 	for _, p := range f.PeersWithDifferentRole {
 		differentRoles += fmt.Sprintf("{peer-id:%d,role:%s,store-id:%d}", p.GetId(), p.GetRole(), p.GetStoreId())
 	}
-	return fmt.Sprintf("{rule-id:%d,peers:%s,different-peers:%s}", f.Rule.ID, peers, differentRoles)
+	return fmt.Sprintf("{rule-id:%s,peers:%s,different-peers:%s}", f.Rule.ID, peers, differentRoles)
 }
 
 // IsSatisfied returns if the rule is properly satisfied.

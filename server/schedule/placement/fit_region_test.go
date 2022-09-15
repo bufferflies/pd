@@ -119,9 +119,10 @@ func BenchmarkFitRegion(b *testing.B) {
 	}
 	storesSet := newMockStoresSet(100)
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		fitRegion(storesSet.GetStores(), region, rules)
-	}
+	//for i := 0; i < b.N; i++ {
+	fit := fitRegion(storesSet.GetStores(), region, rules)
+	//}
+	fmt.Println(fit)
 }
 
 func BenchmarkFitRegionMoreStores(b *testing.B) {
