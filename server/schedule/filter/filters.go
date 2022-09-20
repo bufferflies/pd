@@ -16,6 +16,7 @@ package filter
 
 import (
 	"fmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"strconv"
 
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -50,15 +51,15 @@ func SelectTargetStores(stores []*core.StoreInfo, filters []Filter, opt *config.
 	if len(filters) == 0 {
 		return stores
 	}
-	filters[0].Scope()
-	filterCounter.WithLabelValues("filter-target")
+
+	targetFilterCounter := filterCounter.MustCurryWith(prometheus.Labels{"action": "filter-target", "scope": filters[0].Scope()})
 	return filterStoresBy(stores, func(s *core.StoreInfo) bool {
+		targetID := strconv.FormatUint(s.GetID(), 10)
 		return slice.AllOf(filters, func(i int) bool {
 			filter := filters[i]
 			status := filter.Target(opt, s)
 			if !status.IsOK() {
-				targetID := strconv.FormatUint(s.GetID(), 10)
-				filterCounter.WithLabelValues("filter-target", filters[i].Scope(), filters[i].Type(), targetID).Inc()
+				targetFilterCounter.WithLabelValues(filters[i].Type(), targetID).Inc()
 				collector.Collect(plan.SetResource(s), plan.SetStatus(status))
 				return false
 			}
