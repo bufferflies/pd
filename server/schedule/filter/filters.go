@@ -35,9 +35,8 @@ func SelectSourceStores(stores []*core.StoreInfo, filters []Filter, opt *config.
 			status := filters[i].Source(opt, s)
 			if !status.IsOK() {
 				sourceID := strconv.FormatUint(s.GetID(), 10)
-				targetID := ""
-				filterCounter.WithLabelValues("filter-source", s.GetAddress(),
-					sourceID, filters[i].Scope(), filters[i].Type(), sourceID, targetID).Inc()
+				filterCounter.WithLabelValues("filter-source",
+					sourceID, filters[i].Scope(), filters[i].Type()).Inc()
 				collector.Collect(plan.SetResource(s), plan.SetStatus(status))
 				return false
 			}
@@ -48,19 +47,18 @@ func SelectSourceStores(stores []*core.StoreInfo, filters []Filter, opt *config.
 
 // SelectTargetStores selects stores that be selected as target store from the list.
 func SelectTargetStores(stores []*core.StoreInfo, filters []Filter, opt *config.PersistOptions, collector *plan.Collector) []*core.StoreInfo {
+	if len(filters) == 0 {
+		return stores
+	}
+	filters[0].Scope()
+	filterCounter.WithLabelValues("filter-target")
 	return filterStoresBy(stores, func(s *core.StoreInfo) bool {
 		return slice.AllOf(filters, func(i int) bool {
 			filter := filters[i]
 			status := filter.Target(opt, s)
 			if !status.IsOK() {
-				cfilter, ok := filter.(comparingFilter)
 				targetID := strconv.FormatUint(s.GetID(), 10)
-				sourceID := ""
-				if ok {
-					sourceID = strconv.FormatUint(cfilter.GetSourceStoreID(), 10)
-				}
-				filterCounter.WithLabelValues("filter-target", s.GetAddress(),
-					targetID, filters[i].Scope(), filters[i].Type(), sourceID, targetID).Inc()
+				filterCounter.WithLabelValues("filter-target", filters[i].Scope(), filters[i].Type(), targetID).Inc()
 				collector.Collect(plan.SetResource(s), plan.SetStatus(status))
 				return false
 			}
@@ -98,16 +96,13 @@ type comparingFilter interface {
 
 // Source checks if store can pass all Filters as source store.
 func Source(opt *config.PersistOptions, store *core.StoreInfo, filters []Filter) bool {
-	storeAddress := store.GetAddress()
 	storeID := strconv.FormatUint(store.GetID(), 10)
 	for _, filter := range filters {
 		status := filter.Source(opt, store)
 		if !status.IsOK() {
 			if status != statusStoreRemoved {
-				sourceID := storeID
-				targetID := ""
-				filterCounter.WithLabelValues("filter-source", storeAddress,
-					sourceID, filter.Scope(), filter.Type(), sourceID, targetID).Inc()
+				filterCounter.WithLabelValues("filter-source",
+					storeID, filter.Scope(), filter.Type()).Inc()
 			}
 			return false
 		}
@@ -117,20 +112,12 @@ func Source(opt *config.PersistOptions, store *core.StoreInfo, filters []Filter)
 
 // Target checks if store can pass all Filters as target store.
 func Target(opt *config.PersistOptions, store *core.StoreInfo, filters []Filter) bool {
-	storeAddress := store.GetAddress()
 	storeID := strconv.FormatUint(store.GetID(), 10)
 	for _, filter := range filters {
 		status := filter.Target(opt, store)
 		if !status.IsOK() {
 			if status != statusStoreRemoved {
-				cfilter, ok := filter.(comparingFilter)
-				targetID := storeID
-				sourceID := ""
-				if ok {
-					sourceID = strconv.FormatUint(cfilter.GetSourceStoreID(), 10)
-				}
-				filterCounter.WithLabelValues("filter-target", storeAddress,
-					targetID, filter.Scope(), filter.Type(), sourceID, targetID).Inc()
+				filterCounter.WithLabelValues("filter-target", storeID, filter.Scope(), filter.Type()).Inc()
 			}
 			return false
 		}
