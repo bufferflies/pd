@@ -73,10 +73,11 @@ type balanceRegionSchedulerConfig struct {
 type balanceRegionScheduler struct {
 	*BaseScheduler
 	*retryQuota
-	conf         *balanceRegionSchedulerConfig
-	opController *schedule.OperatorController
-	filters      []filter.Filter
-	counter      *prometheus.CounterVec
+	conf          *balanceRegionSchedulerConfig
+	opController  *schedule.OperatorController
+	filters       []filter.Filter
+	counter       *prometheus.CounterVec
+	filterCounter *filter.FilterCounter
 }
 
 // newBalanceRegionScheduler creates a scheduler that tends to keep regions on
@@ -89,6 +90,7 @@ func newBalanceRegionScheduler(opController *schedule.OperatorController, conf *
 		conf:          conf,
 		opController:  opController,
 		counter:       balanceRegionCounter,
+		filterCounter: filter.NewFilterCounter(BalanceRegionName),
 	}
 	for _, setOption := range opts {
 		setOption(scheduler)
@@ -214,7 +216,9 @@ func (s *balanceRegionScheduler) Schedule(cluster schedule.Cluster, dryRun bool)
 				continue
 			}
 			solver.step++
-			if op := s.transferPeer(solver, collector); op != nil {
+			op := s.transferPeer(solver, collector)
+			s.filterCounter.Flush()
+			if op != nil {
 				s.retryQuota.ResetLimit(solver.source)
 				op.Counters = append(op.Counters, schedulerCounter.WithLabelValues(s.GetName(), "new-operator"))
 				return []*operator.Operator{op}, collector.GetPlans()
@@ -239,7 +243,7 @@ func (s *balanceRegionScheduler) transferPeer(solver *solver, collector *plan.Co
 	}
 
 	candidates := filter.NewCandidates(solver.GetStores()).
-		FilterTarget(solver.GetOpts(), collector, filters...).
+		FilterTarget(solver.GetOpts(), collector, s.filterCounter, filters...).
 		Sort(filter.RegionScoreComparer(solver.GetOpts()))
 
 	if len(candidates.Stores) != 0 {

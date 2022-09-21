@@ -471,7 +471,7 @@ func (l *balanceLeaderScheduler) transferLeaderOut(solver *solver, collector *pl
 	if leaderFilter := filter.NewPlacementLeaderSafeguard(l.GetName(), opts, solver.GetBasicCluster(), solver.GetRuleManager(), solver.region, solver.source, false /*allowMoveLeader*/); leaderFilter != nil {
 		finalFilters = append(l.filters, leaderFilter)
 	}
-	targets = filter.SelectTargetStores(targets, finalFilters, opts, collector)
+	targets = filter.SelectTargetStores(targets, finalFilters, opts, collector, nil)
 	leaderSchedulePolicy := opts.GetLeaderSchedulePolicy()
 	sort.Slice(targets, func(i, j int) bool {
 		iOp := solver.GetOpInfluence(targets[i].GetID())
@@ -521,7 +521,7 @@ func (l *balanceLeaderScheduler) transferLeaderIn(solver *solver, collector *pla
 		finalFilters = append(l.filters, leaderFilter)
 	}
 	target := filter.NewCandidates([]*core.StoreInfo{solver.target}).
-		FilterTarget(opts, nil, finalFilters...).
+		FilterTarget(opts, nil, nil, finalFilters...).
 		PickFirst()
 	if target == nil {
 		log.Debug("region has no target store", zap.String("scheduler", l.GetName()), zap.Uint64("region-id", solver.region.GetID()))

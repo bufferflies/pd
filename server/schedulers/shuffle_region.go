@@ -169,7 +169,7 @@ func (s *shuffleRegionScheduler) scheduleAddPeer(cluster schedule.Cluster, regio
 	excludedFilter := filter.NewExcludedFilter(s.GetName(), nil, region.GetStoreIDs())
 
 	target := filter.NewCandidates(cluster.GetStores()).
-		FilterTarget(cluster.GetOpts(), nil, append(s.filters, scoreGuard, excludedFilter)...).
+		FilterTarget(cluster.GetOpts(), nil, nil, append(s.filters, scoreGuard, excludedFilter)...).
 		RandomPick()
 	if target == nil {
 		return nil

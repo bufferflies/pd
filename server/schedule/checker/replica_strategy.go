@@ -71,12 +71,12 @@ func (s *ReplicaStrategy) SelectStoreToAdd(coLocationStores []*core.StoreInfo, e
 	isolationComparer := filter.IsolationComparer(s.locationLabels, coLocationStores)
 	strictStateFilter := &filter.StoreStateFilter{ActionScope: s.checkerName, MoveRegion: true}
 	targetCandidate := filter.NewCandidates(s.cluster.GetStores()).
-		FilterTarget(s.cluster.GetOpts(), nil, filters...).
+		FilterTarget(s.cluster.GetOpts(), nil, nil, filters...).
 		KeepTheTopStores(isolationComparer, false) // greater isolation score is better
 	if targetCandidate.Len() == 0 {
 		return 0, false
 	}
-	target := targetCandidate.FilterTarget(s.cluster.GetOpts(), nil, strictStateFilter).
+	target := targetCandidate.FilterTarget(s.cluster.GetOpts(), nil, nil, strictStateFilter).
 		PickTheTopStore(filter.RegionScoreComparer(s.cluster.GetOpts()), true) // less region score is better
 	if target == nil {
 		return 0, true // filter by temporary states

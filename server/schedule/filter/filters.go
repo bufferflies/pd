@@ -16,7 +16,6 @@ package filter
 
 import (
 	"fmt"
-	"github.com/prometheus/client_golang/prometheus"
 	"strconv"
 
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -32,10 +31,10 @@ import (
 // SelectSourceStores selects stores that be selected as source store from the list.
 func SelectSourceStores(stores []*core.StoreInfo, filters []Filter, opt *config.PersistOptions, collector *plan.Collector) []*core.StoreInfo {
 	return filterStoresBy(stores, func(s *core.StoreInfo) bool {
+		sourceID := strconv.FormatUint(s.GetID(), 10)
 		return slice.AllOf(filters, func(i int) bool {
 			status := filters[i].Source(opt, s)
 			if !status.IsOK() {
-				sourceID := strconv.FormatUint(s.GetID(), 10)
 				filterCounter.WithLabelValues("filter-source",
 					sourceID, filters[i].Scope(), filters[i].Type()).Inc()
 				collector.Collect(plan.SetResource(s), plan.SetStatus(status))
@@ -47,19 +46,18 @@ func SelectSourceStores(stores []*core.StoreInfo, filters []Filter, opt *config.
 }
 
 // SelectTargetStores selects stores that be selected as target store from the list.
-func SelectTargetStores(stores []*core.StoreInfo, filters []Filter, opt *config.PersistOptions, collector *plan.Collector) []*core.StoreInfo {
-	if len(filters) == 0 {
-		return stores
-	}
-
-	targetFilterCounter := filterCounter.MustCurryWith(prometheus.Labels{"action": "filter-target", "scope": filters[0].Scope()})
+func SelectTargetStores(stores []*core.StoreInfo, filters []Filter, opt *config.PersistOptions, collector *plan.Collector, counter *FilterCounter) []*core.StoreInfo {
 	return filterStoresBy(stores, func(s *core.StoreInfo) bool {
 		targetID := strconv.FormatUint(s.GetID(), 10)
 		return slice.AllOf(filters, func(i int) bool {
 			filter := filters[i]
 			status := filter.Target(opt, s)
 			if !status.IsOK() {
-				targetFilterCounter.WithLabelValues(filters[i].Type(), targetID).Inc()
+				if counter != nil {
+					counter.inc(targetFilter, RegionScoreFilterType, s.GetID())
+				} else {
+					filterCounter.WithLabelValues("filter-target", filter.Scope(), filters[i].Type(), targetID).Inc()
+				}
 				collector.Collect(plan.SetResource(s), plan.SetStatus(status))
 				return false
 			}
