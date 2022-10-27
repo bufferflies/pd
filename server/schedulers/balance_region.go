@@ -251,6 +251,7 @@ func (s *balanceRegionScheduler) transferPeer(solver *solver, collector *plan.Co
 	// the more expensive the filter is, the later it should be placed.
 	filters := []filter.Filter{
 		filter.NewExcludedFilter(s.GetName(), nil, excludeTargets),
+		filter.NewEngineFilterWithStore(s.GetName(), solver.source),
 		filter.NewPlacementSafeguard(s.GetName(), solver.GetOpts(), solver.GetBasicCluster(), solver.GetRuleManager(), solver.region, solver.source),
 	}
 	candidates := filter.NewCandidates(dstStores).FilterTarget(solver.GetOpts(), collector, s.filterCounter, filters...)

@@ -693,6 +693,18 @@ type engineFilter struct {
 	constraint placement.LabelConstraint
 }
 
+// NewEngineFilterWithStore creates a filter that filters out stores that do not have the same engine.
+func NewEngineFilterWithStore(scope string, store *core.StoreInfo) Filter {
+	constraint := NotSpecialEngines
+	if store.IsTiFlash() {
+		constraint = SpecialEngines
+	}
+	return &engineFilter{
+		scope:      scope,
+		constraint: constraint,
+	}
+}
+
 // NewEngineFilter creates a filter that only keeps allowedEngines.
 func NewEngineFilter(scope string, constraint placement.LabelConstraint) Filter {
 	return &engineFilter{
@@ -780,6 +792,7 @@ var (
 	allSpecialEngines = []string{core.EngineTiFlash}
 	// NotSpecialEngines is used to filter the special engine.
 	NotSpecialEngines = placement.LabelConstraint{Key: core.EngineKey, Op: placement.NotIn, Values: allSpecialEngines}
+	SpecialEngines    = placement.LabelConstraint{Key: core.EngineKey, Op: placement.In, Values: allSpecialEngines}
 )
 
 type isolationFilter struct {
