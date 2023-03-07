@@ -17,11 +17,16 @@ package storelimit
 import (
 	"github.com/tikv/pd/pkg/core/constant"
 	"github.com/tikv/pd/pkg/utils/syncutil"
+	"github.com/tikv/pd/server/config"
 )
+
+var _ StoreLimit = &SlidingWindows{}
 
 const (
 	// minSnapSize is the min value to check the windows has enough size.
 	minSnapSize = 10
+
+	DefaultWindowSize = 1000
 )
 
 // SlidingWindows is a multi sliding windows
@@ -42,6 +47,11 @@ func NewSlidingWindows(cap float64) *SlidingWindows {
 	return &SlidingWindows{
 		windows: windows,
 	}
+}
+
+// Name return the name.
+func (s *SlidingWindows) Name() string {
+	return config.VersionV2
 }
 
 // Reset resets the capacity of the sliding windows.

@@ -63,6 +63,7 @@ type Config interface {
 
 	GetSwitchWitnessInterval() time.Duration
 	IsWitnessAllowed() bool
+	StoreLimitVersion() string
 
 	GetLowSpaceRatio() float64
 	GetHighSpaceRatio() float64

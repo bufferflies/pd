@@ -31,6 +31,7 @@ import (
 	"github.com/tikv/pd/pkg/errs"
 	"github.com/tikv/pd/pkg/utils/syncutil"
 	"github.com/tikv/pd/pkg/versioninfo"
+	"github.com/tikv/pd/server/config"
 	"github.com/tikv/pd/server/schedule/hbstream"
 	"github.com/tikv/pd/server/schedule/labeler"
 	"github.com/tikv/pd/server/schedule/operator"
@@ -865,8 +866,20 @@ func (oc *OperatorController) getOrCreateStoreLimit(storeID uint64, limitType st
 		log.Error("invalid store ID", zap.Uint64("store-id", storeID))
 		return nil
 	}
-
 	limit := s.GetStoreLimit()
-	limit.Reset(ratePerSec, limitType)
+	// version changed
+	if version := oc.GetCluster().GetOpts().StoreLimitVersion(); version != limit.Name() {
+		switch version {
+		case config.VersionV1:
+			limit = storelimit.NewStoreRateLimit(ratePerSec)
+		case config.VersionV2:
+			limit = storelimit.NewSlidingWindows(storelimit.DefaultWindowSize)
+		}
+		return limit
+	}
+	// store limit v2 doesn't need to reset by config.
+	if limit.Name() == config.VersionV1 {
+		limit.Reset(ratePerSec, limitType)
+	}
 	return limit
 }

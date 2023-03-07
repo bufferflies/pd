@@ -295,6 +295,11 @@ func (o *PersistOptions) IsWitnessAllowed() bool {
 	return o.GetScheduleConfig().EnableWitness
 }
 
+// IsStoreLimitV2 return true whether store limit is set V2
+func (o *PersistOptions) StoreLimitVersion() string {
+	return o.GetScheduleConfig().StoreLimitVersion
+}
+
 // SetEnableWitness to set the option for witness. It's only used to test.
 func (o *PersistOptions) SetEnableWitness(enable bool) {
 	v := o.GetScheduleConfig().Clone()
@@ -336,6 +341,10 @@ func (o *PersistOptions) SetStoreLimit(storeID uint64, typ storelimit.Type, rate
 			rate = v.StoreLimit[storeID].AddPeer
 		}
 		sc = StoreLimitConfig{AddPeer: rate, RemovePeer: ratePerMin}
+
+	// it will update tikv config in later pr
+	case storelimit.SendSnapshot:
+
 	}
 	v.StoreLimit[storeID] = sc
 	o.SetScheduleConfig(v)

@@ -679,6 +679,11 @@ type ScheduleConfig struct {
 	// SlowStoreEvictingAffectedStoreRatioThreshold is the affected ratio threshold when judging a store is slow
 	// A store's slowness must affected more than `store-count * SlowStoreEvictingAffectedStoreRatioThreshold` to trigger evicting.
 	SlowStoreEvictingAffectedStoreRatioThreshold float64 `toml:"slow-store-evicting-affected-store-ratio-threshold" json:"slow-store-evicting-affected-store-ratio-threshold,omitempty"`
+
+	// StoreLimitVersion is used to control the formula used to control snapshot speed.
+	// v1: which is based on the count.
+	// v2: which is based on the TIKV io snap limit.
+	StoreLimitVersion string `toml:"store-limit-version" json:"store-limit-version"`
 }
 
 // Clone returns a cloned scheduling configuration.
@@ -733,6 +738,14 @@ const (
 	defaultMaxStorePreparingTime = 48 * time.Hour
 	// When a slow store affected more than 30% of total stores, it will trigger evicting.
 	defaultSlowStoreEvictingAffectedStoreRatioThreshold = 0.3
+
+	// It means that the default store limit is rate limit.
+	defaultStoreLimitVersion = string(VersionV1)
+)
+
+const (
+	VersionV1 string = "v1"
+	VersionV2        = "v2"
 )
 
 func (c *ScheduleConfig) adjust(meta *configutil.ConfigMetaData, reloading bool) error {
@@ -808,6 +821,9 @@ func (c *ScheduleConfig) adjust(meta *configutil.ConfigMetaData, reloading bool)
 		configutil.AdjustString(&c.RegionScoreFormulaVersion, defaultRegionScoreFormulaVersion)
 	}
 
+	if !meta.IsDefined("store-limit-formula-version") && !reloading {
+		configutil.AdjustString(&c.StoreLimitVersion, defaultStoreLimitVersion)
+	}
 	adjustSchedulers(&c.Schedulers, DefaultSchedulers)
 
 	for k, b := range c.migrateConfigurationMap() {

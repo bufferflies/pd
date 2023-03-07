@@ -17,6 +17,7 @@ package storelimit
 import (
 	"github.com/tikv/pd/pkg/core/constant"
 	"github.com/tikv/pd/pkg/ratelimit"
+	"github.com/tikv/pd/server/config"
 )
 
 const (
@@ -79,6 +80,11 @@ func NewStoreRateLimit(ratePerSec float64) StoreLimit {
 	return &StoreRateLimit{
 		limits: limits,
 	}
+}
+
+// Name return the name.
+func (l *StoreRateLimit) Name() string {
+	return config.VersionV1
 }
 
 // Available returns the number of available tokens.
