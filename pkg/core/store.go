@@ -491,6 +491,15 @@ func (s *StoreInfo) ResourceWeight(kind constant.ResourceKind) float64 {
 	}
 }
 
+// Feedback
+func (s *StoreInfo) Feedback(e float64, limitType storelimit.Type) {
+	limit := s.GetStoreLimit()
+	if limit.Available(0, limitType, constant.Low) {
+		return
+	}
+	limit.Feedback(e)
+}
+
 // GetStartTime returns the start timestamp.
 func (s *StoreInfo) GetStartTime() time.Time {
 	return time.Unix(s.meta.GetStartTimestamp(), 0)

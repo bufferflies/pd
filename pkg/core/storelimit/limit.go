@@ -40,6 +40,10 @@ type StoreLimit interface {
 	Take(count int64, typ Type, level constant.PriorityLevel) bool
 	// Reset resets the store limit
 	Reset(rate float64, typ Type)
-	// Name return the type limit
-	Name() string
+	// Version return the type limit
+	Version() string
+	// Ack refill the consumed cost
+	Ack(cost int64)
+	// Feedback auto adjust the limit
+	Feedback(e float64)
 }

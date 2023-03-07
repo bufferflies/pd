@@ -43,6 +43,8 @@ const (
 	StatusStoreAddLimitThrottled
 	// StatusStoreRemoveLimitThrottled represents the store cannot be selected due to the remove peer limitation.
 	StatusStoreRemoveLimitThrottled
+	// StatusStoreSendLimitThrottled represents the store cannot be selected as snapshot sender due to the snapshot limitation.
+	StatusStoreSendLimitThrottled
 )
 
 // config limitation
@@ -92,6 +94,8 @@ const (
 	StatusNoTargetRegion
 	// StatusRegionLabelReject represents the plan conflicts with region label.
 	StatusRegionLabelReject
+	// StatusRegionLeaderNoLimit represents the region leader has no available sending space.
+	StatusRegionLeaderNoLimit
 )
 
 const (

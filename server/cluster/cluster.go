@@ -94,6 +94,8 @@ const (
 	removingAction          = "removing"
 	preparingAction         = "preparing"
 	gcTunerCheckCfgInterval = 10 * time.Second
+
+	minTolerateDurationSec = 5
 )
 
 // Server is the interface for cluster.
@@ -893,7 +895,14 @@ func (c *RaftCluster) HandleStoreHeartbeat(heartbeat *pdpb.StoreHeartbeatRequest
 		peerInfo := core.NewPeerInfo(peer, loads, interval)
 		c.hotStat.CheckReadAsync(statistics.NewCheckPeerTask(peerInfo, region))
 	}
-
+	for _, stat := range stats.GetSnapshotStats() {
+		dur := stat.GetSendDurationSec() + stat.GetGenerateDurationSec()
+		if dur < minTolerateDurationSec {
+			dur = minTolerateDurationSec
+		}
+		e := int64(dur)*2 - int64(stat.GetTotalDurationSec())
+		store.Feedback(float64(e), storelimit.SendSnapshot)
+	}
 	// Here we will compare the reported regions with the previous hot peers to decide if it is still hot.
 	c.hotStat.CheckReadAsync(statistics.NewCollectUnReportedPeerTask(storeID, regions, interval))
 	return nil

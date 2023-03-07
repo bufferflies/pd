@@ -17,7 +17,6 @@ package storelimit
 import (
 	"github.com/tikv/pd/pkg/core/constant"
 	"github.com/tikv/pd/pkg/utils/syncutil"
-	"github.com/tikv/pd/server/config"
 )
 
 var _ StoreLimit = &SlidingWindows{}
@@ -27,12 +26,16 @@ const (
 	minSnapSize = 10
 
 	DefaultWindowSize = 1000
+
+	defaultProportion = 20
+	defaultIntegral   = 10
 )
 
 // SlidingWindows is a multi sliding windows
 type SlidingWindows struct {
 	mu      syncutil.RWMutex
 	windows []*window
+	lastSum float64
 }
 
 // NewSlidingWindows is the construct of SlidingWindows.
@@ -49,9 +52,19 @@ func NewSlidingWindows(cap float64) *SlidingWindows {
 	}
 }
 
+// Feedback adjust the limit
+func (s *SlidingWindows) Feedback(e float64) {
+	s.lastSum += e
+	cap := defaultProportion*e + defaultIntegral*s.lastSum
+	if cap < DefaultWindowSize {
+		cap = DefaultWindowSize
+	}
+	s.Reset(cap, SendSnapshot)
+}
+
 // Name return the name.
-func (s *SlidingWindows) Name() string {
-	return config.VersionV2
+func (s *SlidingWindows) Version() string {
+	return "v2"
 }
 
 // Reset resets the capacity of the sliding windows.

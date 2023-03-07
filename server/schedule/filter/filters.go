@@ -325,6 +325,8 @@ type StoreStateFilter struct {
 	AllowFastFailover bool
 	// Set true if allows temporary states.
 	AllowTemporaryStates bool
+	// Set true if pick the snapshot send.
+	SnapshotSend bool
 	// Reason is used to distinguish the reason of store state filter
 	Reason filterType
 }
@@ -425,6 +427,15 @@ func (f *StoreStateFilter) exceedRemoveLimit(_ config.Config, store *core.StoreI
 	return statusOK
 }
 
+func (f *StoreStateFilter) exceedSendLimit(_ config.Config, store *core.StoreInfo) *plan.Status {
+	if !f.AllowTemporaryStates && !store.IsAvailable(storelimit.SendSnapshot) {
+		f.Reason = storeStateExceedSendLimit
+		return statusStoreSendLimit
+	}
+	f.Reason = storeStateOK
+	return statusOK
+}
+
 func (f *StoreStateFilter) exceedAddLimit(_ config.Config, store *core.StoreInfo) *plan.Status {
 	if !f.AllowTemporaryStates && !store.IsAvailable(storelimit.AddPeer) {
 		f.Reason = storeStateExceedAddLimit
@@ -486,6 +497,7 @@ const (
 	witnessTarget
 	scatterRegionTarget
 	fastFailoverTarget
+	snapshotSender
 )
 
 func (f *StoreStateFilter) anyConditionMatch(typ int, conf config.Config, store *core.StoreInfo) *plan.Status {
@@ -509,6 +521,8 @@ func (f *StoreStateFilter) anyConditionMatch(typ int, conf config.Config, store 
 		funcs = []conditionFunc{f.isRemoved, f.isRemoving, f.isDown, f.isDisconnected, f.isBusy}
 	case fastFailoverTarget:
 		funcs = []conditionFunc{f.isRemoved, f.isRemoving, f.isDown, f.isDisconnected, f.isBusy}
+	case snapshotSender:
+		funcs = []conditionFunc{f.isBusy, f.exceedSendLimit, f.tooManySnapshots}
 	}
 	for _, cf := range funcs {
 		if status := cf(conf, store); !status.IsOK() {
@@ -528,6 +542,12 @@ func (f *StoreStateFilter) Source(conf config.Config, store *core.StoreInfo) (st
 	}
 	if f.MoveRegion {
 		if status = f.anyConditionMatch(regionSource, conf, store); !status.IsOK() {
+			return
+		}
+	}
+
+	if f.SnapshotSend {
+		if status = f.anyConditionMatch(snapshotSender, conf, store); !status.IsOK() {
 			return
 		}
 	}

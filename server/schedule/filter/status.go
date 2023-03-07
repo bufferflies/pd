@@ -35,6 +35,7 @@ var (
 	statusStorePendingPeerThrottled = plan.NewStatus(plan.StatusStorePendingPeerThrottled)
 	statusStoreAddLimit             = plan.NewStatus(plan.StatusStoreAddLimitThrottled)
 	statusStoreRemoveLimit          = plan.NewStatus(plan.StatusStoreRemoveLimitThrottled)
+	statusStoreSendLimit            = plan.NewStatus(plan.StatusStoreSendLimitThrottled)
 
 	// store config limitation
 	statusStoreRejectLeader = plan.NewStatus(plan.StatusStoreRejectLeader)
@@ -49,4 +50,5 @@ var (
 	statusRegionNotMatchRule  = plan.NewStatus(plan.StatusRegionNotMatchRule)
 	statusRegionNotReplicated = plan.NewStatus(plan.StatusRegionNotReplicated)
 	statusRegionWitnessPeer   = plan.NewStatus(plan.StatusRegionNotMatchRule)
+	statusRegionLeaderNoLimit = plan.NewStatus(plan.StatusRegionLeaderNoLimit)
 )

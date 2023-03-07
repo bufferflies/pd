@@ -164,3 +164,24 @@ func (f *regionWitnessFilter) Select(region *core.RegionInfo) *plan.Status {
 	}
 	return statusOK
 }
+
+type SnapshotSendFilter struct {
+	senders map[uint64]struct{}
+}
+
+// NewSnapshotSendFilter returns creates a RegionFilter that filters regions with witness peer on the specific store.
+func NewSnapshotSendFilter(stores []*core.StoreInfo) RegionFilter {
+	senders := make(map[uint64]struct{}, 0)
+	for _, store := range stores {
+		senders[store.GetID()] = struct{}{}
+	}
+	return &SnapshotSendFilter{senders: senders}
+}
+
+func (f *SnapshotSendFilter) Select(region *core.RegionInfo) *plan.Status {
+	leaderStoreID := region.GetLeader().GetStoreId()
+	if _, ok := f.senders[leaderStoreID]; ok {
+		return statusOK
+	}
+	return statusRegionLeaderNoLimit
+}

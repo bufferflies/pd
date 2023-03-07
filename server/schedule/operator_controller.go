@@ -541,6 +541,7 @@ func (oc *OperatorController) removeOperatorLocked(op *operator.Operator) bool {
 		delete(oc.operators, regionID)
 		oc.updateCounts(oc.operators)
 		operatorCounter.WithLabelValues(op.Desc(), "remove").Inc()
+		oc.Ack(op)
 		return true
 	}
 	return false
@@ -638,6 +639,23 @@ func (oc *OperatorController) GetOperators() []*operator.Operator {
 	}
 
 	return operators
+}
+
+func (oc *OperatorController) Ack(op *operator.Operator) {
+	opInfluence := NewTotalOpInfluence([]*operator.Operator{op}, oc.cluster)
+	for storeID := range opInfluence.StoresInfluence {
+		for _, v := range storelimit.TypeNameValue {
+			snapCost := opInfluence.GetStoreInfluence(storeID).GetStepCost(v)
+			snapLimit := oc.cluster.GetStore(storeID).GetStoreLimit()
+			if snapLimit == nil {
+				log.Warn("snap limit should not be nil",
+					zap.Uint64("store-id", storeID),
+					zap.Stringer("limit-type", v))
+				continue
+			}
+			snapLimit.Ack(snapCost)
+		}
+	}
 }
 
 // GetWaitingOperators gets operators from the waiting operators.
@@ -868,7 +886,7 @@ func (oc *OperatorController) getOrCreateStoreLimit(storeID uint64, limitType st
 	}
 	limit := s.GetStoreLimit()
 	// version changed
-	if version := oc.GetCluster().GetOpts().StoreLimitVersion(); version != limit.Name() {
+	if version := oc.GetCluster().GetOpts().StoreLimitVersion(); version != limit.Version() {
 		switch version {
 		case config.VersionV1:
 			limit = storelimit.NewStoreRateLimit(ratePerSec)
@@ -878,7 +896,7 @@ func (oc *OperatorController) getOrCreateStoreLimit(storeID uint64, limitType st
 		return limit
 	}
 	// store limit v2 doesn't need to reset by config.
-	if limit.Name() == config.VersionV1 {
+	if limit.Version() == config.VersionV1 {
 		limit.Reset(ratePerSec, limitType)
 	}
 	return limit

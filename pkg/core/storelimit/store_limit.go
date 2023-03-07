@@ -17,7 +17,6 @@ package storelimit
 import (
 	"github.com/tikv/pd/pkg/core/constant"
 	"github.com/tikv/pd/pkg/ratelimit"
-	"github.com/tikv/pd/server/config"
 )
 
 const (
@@ -83,9 +82,15 @@ func NewStoreRateLimit(ratePerSec float64) StoreLimit {
 }
 
 // Name return the name.
-func (l *StoreRateLimit) Name() string {
-	return config.VersionV1
+func (l *StoreRateLimit) Version() string {
+	return "v1"
 }
+
+// Feedback not support.
+func (l *StoreRateLimit) Feedback(_ float64) {}
+
+// Ack not support
+func (l *StoreRateLimit) Ack(_ int64) {}
 
 // Available returns the number of available tokens.
 // notice that the priority level is not used.

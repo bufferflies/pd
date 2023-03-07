@@ -23,6 +23,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/tikv/pd/pkg/core"
 	"github.com/tikv/pd/pkg/core/constant"
+	"github.com/tikv/pd/pkg/core/storelimit"
 	"github.com/tikv/pd/server/schedule"
 	"github.com/tikv/pd/server/schedule/filter"
 	"github.com/tikv/pd/server/schedule/operator"
@@ -132,6 +133,9 @@ func (s *balanceRegionScheduler) Schedule(cluster schedule.Cluster, dryRun bool)
 	balanceRegionScheduleCounter.Inc()
 	stores := cluster.GetStores()
 	opts := cluster.GetOpts()
+	sendFilter := &filter.StoreStateFilter{ActionScope: s.GetName(), SnapshotSend: true}
+	sendStores := filter.SelectSourceStores(stores, []filter.Filter{sendFilter}, opts, collector, s.filterCounter)
+	snapshotFilter := filter.NewSnapshotSendFilter(sendStores)
 	faultTargets := filter.SelectUnavailableTargetStores(stores, s.filters, opts, collector, s.filterCounter)
 	sourceStores := filter.SelectSourceStores(stores, s.filters, opts, collector, s.filterCounter)
 	opInfluence := s.opController.GetOpInfluence(cluster)
@@ -175,13 +179,13 @@ func (s *balanceRegionScheduler) Schedule(cluster schedule.Cluster, dryRun bool)
 			// Priority pick the region that has a pending peer.
 			// Pending region may mean the disk is overload, remove the pending region firstly.
 			solver.region = filter.SelectOneRegion(cluster.RandPendingRegions(solver.SourceStoreID(), s.conf.Ranges), collector,
-				append(baseRegionFilters, filter.NewRegionWitnessFilter(solver.SourceStoreID()))...)
+				append(baseRegionFilters, snapshotFilter, filter.NewRegionWitnessFilter(solver.SourceStoreID()))...)
 			if solver.region == nil {
 				// Then pick the region that has a follower in the source store.
 				solver.region = filter.SelectOneRegion(cluster.RandFollowerRegions(solver.SourceStoreID(), s.conf.Ranges), collector,
-					append(baseRegionFilters, filter.NewRegionWitnessFilter(solver.SourceStoreID()), pendingFilter)...)
+					append(baseRegionFilters, snapshotFilter, filter.NewRegionWitnessFilter(solver.SourceStoreID()), pendingFilter)...)
 			}
-			if solver.region == nil {
+			if solver.region == nil && solver.source.GetStoreLimit().Available(0, storelimit.SendSnapshot, constant.Medium) {
 				// Then pick the region has the leader in the source store.
 				solver.region = filter.SelectOneRegion(cluster.RandLeaderRegions(solver.SourceStoreID(), s.conf.Ranges), collector,
 					append(baseRegionFilters, filter.NewRegionWitnessFilter(solver.SourceStoreID()), pendingFilter)...)
@@ -189,7 +193,7 @@ func (s *balanceRegionScheduler) Schedule(cluster schedule.Cluster, dryRun bool)
 			if solver.region == nil {
 				// Finally, pick learner.
 				solver.region = filter.SelectOneRegion(cluster.RandLearnerRegions(solver.SourceStoreID(), s.conf.Ranges), collector,
-					append(baseRegionFilters, filter.NewRegionWitnessFilter(solver.SourceStoreID()), pendingFilter)...)
+					append(baseRegionFilters, snapshotFilter, filter.NewRegionWitnessFilter(solver.SourceStoreID()), pendingFilter)...)
 			}
 			if solver.region == nil {
 				balanceRegionNoRegionCounter.Inc()

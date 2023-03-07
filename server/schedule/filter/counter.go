@@ -123,6 +123,7 @@ const (
 	storeStateBusy
 	storeStateExceedRemoveLimit
 	storeStateExceedAddLimit
+	storeStateExceedSendLimit
 	storeStateTooManySnapshot
 	storeStateTooManyPendingPeer
 	storeStateRejectLeader
