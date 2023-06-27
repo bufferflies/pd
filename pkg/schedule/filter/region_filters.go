@@ -15,6 +15,7 @@
 package filter
 
 import (
+	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/core"
 	"github.com/tikv/pd/pkg/core/constant"
 	"github.com/tikv/pd/pkg/core/storelimit"
@@ -22,6 +23,7 @@ import (
 	"github.com/tikv/pd/pkg/schedule/placement"
 	"github.com/tikv/pd/pkg/schedule/plan"
 	"github.com/tikv/pd/pkg/slice"
+	"go.uber.org/zap"
 )
 
 // SelectRegions selects regions that be selected from the list.
@@ -52,6 +54,9 @@ func SelectOneRegion(regions []*core.RegionInfo, collector *plan.Collector, filt
 					if collector != nil {
 						collector.Collect(plan.SetResource(r), plan.SetStatus(status))
 					}
+					log.Debug("can't found region",
+						zap.Uint64("region-id", r.GetID()),
+						zap.Stringer("status", status))
 					return false
 				}
 				return true

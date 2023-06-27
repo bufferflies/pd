@@ -191,10 +191,18 @@ func (s *balanceRegionScheduler) Schedule(cluster sche.ScheduleCluster, dryRun b
 					append(baseRegionFilters, filter.NewRegionWitnessFilter(solver.SourceStoreID()), pendingFilter)...)
 			}
 			if solver.region == nil {
+				log.Debug("can't found region",
+					zap.String("scheduler", s.GetName()),
+					zap.Uint64("source-store", solver.SourceStoreID()),
+				)
 				balanceRegionNoRegionCounter.Inc()
 				continue
 			}
-			log.Debug("select region", zap.String("scheduler", s.GetName()), zap.Uint64("region-id", solver.region.GetID()))
+			log.Debug("select region",
+				zap.String("scheduler", s.GetName()),
+				zap.Uint64("region-id", solver.region.GetID()),
+				zap.Uint64("source-store", solver.SourceStoreID()),
+			)
 			// Skip hot regions.
 			if cluster.IsRegionHot(solver.region) {
 				log.Debug("region is hot", zap.String("scheduler", s.GetName()), zap.Uint64("region-id", solver.region.GetID()))
