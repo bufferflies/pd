@@ -1541,7 +1541,11 @@ func (bs *balanceSolver) createSplitOperator(regions []*core.RegionInfo, isTooHo
 				// Otherwise, we should append the current start key and end key.
 				// E.g. [a, b), [c, d) -> [a, b), [c, d) split keys is [a,b,c,d]
 				if bytes.Equal(stat.StartKey, splitKey[len(splitKey)-1]) {
-					splitKey[len(splitKey)-1] = stat.EndKey
+					if isTooHot {
+						splitKey = append(splitKey, stat.EndKey)
+					} else {
+						splitKey[len(splitKey)-1] = stat.EndKey
+					}
 				} else {
 					splitKey = append(splitKey, stat.StartKey, stat.EndKey)
 				}
