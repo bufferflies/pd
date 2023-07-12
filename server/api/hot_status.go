@@ -21,14 +21,12 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/core"
 	"github.com/tikv/pd/pkg/statistics"
 	"github.com/tikv/pd/pkg/statistics/buckets"
 	"github.com/tikv/pd/pkg/storage"
 	"github.com/tikv/pd/server"
 	"github.com/unrolled/render"
-	"go.uber.org/zap"
 )
 
 type hotStatusHandler struct {
@@ -206,14 +204,13 @@ func (h *hotStatusHandler) GetHotStores(w http.ResponseWriter, r *http.Request) 
 // @Router   /hotspot/buckets [get]
 func (h *hotStatusHandler) GetHotBuckets(w http.ResponseWriter, r *http.Request) {
 	regionIDs := r.URL.Query()["region_id"]
-	log.Info("GetHotBuckets", zap.Strings("regionIDs", regionIDs))
 	ids := make([]uint64, len(regionIDs))
 	for i, regionID := range regionIDs {
 		if id, err := strconv.ParseUint(regionID, 10, 64); err == nil {
 			ids[i] = id
 		}
 	}
-	stats := h.Handler.GetHotBuckets()
+	stats := h.Handler.GetHotBuckets(ids...)
 	ret := HotBucketsResponse{}
 	for regionID, stats := range stats {
 		ret[regionID] = make([]*HotBucketsItem, len(stats))

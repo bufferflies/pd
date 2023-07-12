@@ -182,7 +182,6 @@ func (h *HotBucketCache) schedule() {
 // step3: update bucket states.
 func (h *HotBucketCache) checkBucketsFlow(buckets *metapb.Buckets) (newItem *BucketTreeItem, overlaps []*BucketTreeItem) {
 	newItem = convertToBucketTreeItem(buckets)
-	log.Info("check buckets flow", zap.Any("newItem", newItem))
 	// origin is existed and the version is same.
 	if origin := h.bucketsOfRegion[buckets.GetRegionId()]; newItem.equals(origin) {
 		overlaps = []*BucketTreeItem{origin}

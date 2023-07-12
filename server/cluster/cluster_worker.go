@@ -250,6 +250,7 @@ func (c *RaftCluster) HandleReportBuckets(b *metapb.Buckets) error {
 	if err := c.processReportBuckets(b); err != nil {
 		return err
 	}
+	log.Info("HandleReportBuckets", zap.Any("Buckets", b))
 	c.hotBuckets.CheckAsync(buckets.NewCheckPeerTask(b))
 	return nil
 }
