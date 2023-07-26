@@ -1913,8 +1913,10 @@ func tooHotNeedSplit(store *statistics.StoreLoadDetail, region *statistics.HotPe
 	})
 	if hot {
 		log.Info("region is too hot, needs to be split",
-			zap.Any("store loads", store.LoadPred.Current.Loads),
-			zap.Any("region loads", store.LoadPred.Current.Loads),
+			zap.Uint64("store-id", store.GetID()),
+			zap.Uint64("region-id", region.RegionID),
+			zap.Any("store-loads", store.LoadPred.Current.Loads),
+			zap.Any("region-loads", region.Loads),
 			zap.Float64("splitThresholds", splitThresholds),
 		)
 	}
