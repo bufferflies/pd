@@ -387,7 +387,7 @@ func (conf *hotRegionSchedulerConfig) valid() error {
 		conf.ForbidRWType != "none" && conf.ForbidRWType != "" {
 		return errs.ErrSchedulerConfig.FastGenByArgs("invalid forbid-rw-type")
 	}
-	if conf.SplitThresholds < 0.01 || conf.SplitThresholds > 1.0 {
+	if conf.SplitThresholds < 0.01 || conf.SplitThresholds >= 1.0 {
 		return errs.ErrSchedulerConfig.FastGenByArgs("invalid split-thresholds, should be in range [0.01, 1.0]")
 	}
 	return nil

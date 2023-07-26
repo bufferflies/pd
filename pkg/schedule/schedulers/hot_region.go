@@ -1908,7 +1908,15 @@ func prioritiesToDim(priorities []string) (firstPriority int, secondPriority int
 
 // tooHotNeedSplit returns true if any dim of the hot region is greater than the store threshold.
 func tooHotNeedSplit(store *statistics.StoreLoadDetail, region *statistics.HotPeerStat, splitThresholds float64) bool {
-	return slice.AnyOf(store.LoadPred.Current.Loads, func(i int) bool {
+	hot := slice.AnyOf(store.LoadPred.Current.Loads, func(i int) bool {
 		return region.Loads[i] > store.LoadPred.Current.Loads[i]*splitThresholds
 	})
+	if hot {
+		log.Info("region is too hot, needs to be split",
+			zap.Any("store loads", store.LoadPred.Current.Loads),
+			zap.Any("region loads", store.LoadPred.Current.Loads),
+			zap.Float64("splitThresholds", splitThresholds),
+		)
+	}
+	return hot
 }
