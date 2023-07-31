@@ -339,6 +339,7 @@ func (s *Server) startEtcd(ctx context.Context) error {
 	}
 
 	// start client
+	log.Info("start init etcd client")
 	s.client, s.httpClient, err = s.startClient()
 	if err != nil {
 		return err
