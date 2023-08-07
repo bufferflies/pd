@@ -102,9 +102,19 @@ func (c *Controller) CheckRegion(region *core.RegionInfo) []*operator.Operator {
 			fit := c.priorityInspector.Inspect(region)
 			if op := c.ruleChecker.CheckWithFit(region, fit); op != nil {
 				if opController.OperatorCount(operator.OpReplica) < c.conf.GetReplicaScheduleLimit() {
-					return []*operator.Operator{op}
+					if op.Desc() == "replace-rule-offline-leader-peer" && c.cluster.IsRegionHot(c.cluster.GetRegion(op.RegionID())) {
+						allowed := opController.OperatorCount(operator.OpHotRegion) < c.conf.GetHotRegionScheduleLimit()
+						if !allowed {
+							operator.OperatorLimitCounter.WithLabelValues(c.ruleChecker.GetType(), operator.OpHotRegion.String()).Inc()
+						} else {
+							return []*operator.Operator{op}
+						}
+					} else {
+						return []*operator.Operator{op}
+					}
+				} else {
+					operator.OperatorLimitCounter.WithLabelValues(c.ruleChecker.GetType(), operator.OpReplica.String()).Inc()
 				}
-				operator.OperatorLimitCounter.WithLabelValues(c.ruleChecker.GetType(), operator.OpReplica.String()).Inc()
 				c.regionWaitingList.Put(region.GetID(), nil)
 			}
 		}

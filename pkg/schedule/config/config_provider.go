@@ -86,6 +86,7 @@ type CheckerConfigProvider interface {
 	GetMaxMergeRegionSize() uint64
 	GetMaxMergeRegionKeys() uint64
 	GetReplicaScheduleLimit() uint64
+	GetHotRegionScheduleLimit() uint64
 }
 
 // SharedConfigProvider is the interface for shared configurations.
