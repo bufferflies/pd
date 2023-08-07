@@ -107,6 +107,7 @@ func (c *Controller) CheckRegion(region *core.RegionInfo) []*operator.Operator {
 						if !allowed {
 							operator.OperatorLimitCounter.WithLabelValues(c.ruleChecker.GetType(), operator.OpHotRegion.String()).Inc()
 						} else {
+							op.AttachKind(operator.OpHotRegion)
 							return []*operator.Operator{op}
 						}
 					} else {
