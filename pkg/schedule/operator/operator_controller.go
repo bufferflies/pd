@@ -752,6 +752,26 @@ func (oc *Controller) OperatorCount(kind OpKind) uint64 {
 	return oc.counts[kind]
 }
 
+// FastOperatorCount gets the count of fast operators filtered by kind.
+func (oc *Controller) FastOperatorCount(kind OpKind) uint64 {
+	count := uint64(0)
+	for _, id := range oc.fastOperators.GetAllID() {
+		value, exist := oc.fastOperators.Get(id)
+		if exist {
+			continue
+		}
+
+		op, ok := value.(*Operator)
+		if !ok {
+			continue
+		}
+		if op.Kind()&kind == kind {
+			count++
+		}
+	}
+	return count
+}
+
 // GetOpInfluence gets OpInfluence.
 func (oc *Controller) GetOpInfluence(cluster *core.BasicCluster) OpInfluence {
 	influence := OpInfluence{

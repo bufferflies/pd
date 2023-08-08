@@ -16,6 +16,8 @@ package checker
 
 import (
 	"context"
+	"github.com/prometheus/common/log"
+	"go.uber.org/zap"
 	"time"
 
 	"github.com/pingcap/failpoint"
@@ -103,7 +105,8 @@ func (c *Controller) CheckRegion(region *core.RegionInfo) []*operator.Operator {
 			if op := c.ruleChecker.CheckWithFit(region, fit); op != nil {
 				if opController.OperatorCount(operator.OpReplica) < c.conf.GetReplicaScheduleLimit() {
 					if op.Desc() == "replace-rule-offline-leader-peer" && c.cluster.IsRegionHot(c.cluster.GetRegion(op.RegionID())) {
-						allowed := opController.OperatorCount(operator.OpHotRegion) < c.conf.GetHotRegionScheduleLimit()
+						log.Info("replace rule offline leader", zap.Stringer("operator", op))
+						allowed := opController.OperatorCount(operator.OpHotRegion)+opController.FastOperatorCount(operator.OpHotRegion) < c.conf.GetHotRegionScheduleLimit()
 						if !allowed {
 							operator.OperatorLimitCounter.WithLabelValues(c.ruleChecker.GetType(), operator.OpHotRegion.String()).Inc()
 						} else {
