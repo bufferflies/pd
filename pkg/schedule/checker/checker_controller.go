@@ -16,11 +16,11 @@ package checker
 
 import (
 	"context"
-	"github.com/prometheus/common/log"
 	"go.uber.org/zap"
 	"time"
 
 	"github.com/pingcap/failpoint"
+	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/cache"
 	"github.com/tikv/pd/pkg/core"
 	"github.com/tikv/pd/pkg/errs"
