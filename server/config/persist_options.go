@@ -764,11 +764,9 @@ type persistedConfig struct {
 
 // Persist saves the configuration to the storage.
 func (o *PersistOptions) Persist(storage endpoint.ConfigStorage) error {
-	schedulerCfg := o.GetScheduleConfig()
-	schedulerCfg.MaxMergeRegionSize = 0
 	cfg := &persistedConfig{
 		Config: &Config{
-			Schedule:        *schedulerCfg,
+			Schedule:        *o.GetScheduleConfig(),
 			Replication:     *o.GetReplicationConfig(),
 			PDServerCfg:     *o.GetPDServerConfig(),
 			ReplicationMode: *o.GetReplicationModeConfig(),
