@@ -177,6 +177,7 @@ func (td *tsoDispatcher) close() {
 }
 
 func (td *tsoDispatcher) push(request *Request) {
+	log.Info("[tso] push request to channel")
 	td.tsoRequestCh <- request
 }
 
@@ -287,6 +288,7 @@ tsoBatchLoop:
 				timer := time.NewTimer(constants.RetryInterval)
 				select {
 				case <-ctx.Done():
+					log.Error("[tso] context cancelled", errs.ZapError(ctx.Err()))
 					// Finish the collected requests if the context is canceled.
 					td.cancelCollectedRequests(tsoBatchController, invalidStreamID, errors.WithStack(ctx.Err()))
 					timer.Stop()
@@ -438,18 +440,19 @@ func (td *tsoDispatcher) handleProcessRequestError(
 		// ensure the next round of TSO requests can be sent to the new leader.
 		if err := bo.Exec(ctx, svcDiscovery.CheckMemberChanged); err != nil {
 			log.Error("[tso] check member changed error after the leader changed", zap.Error(err))
+			select {
+			case <-ctx.Done():
+				return false
+			default:
+				return true
+			}
 		}
 	} else {
 		// For other errors, we can just schedule a member change check asynchronously.
 		svcDiscovery.ScheduleCheckMemberChanged()
 	}
 
-	select {
-	case <-ctx.Done():
-		return false
-	default:
-		return true
-	}
+	return true
 }
 
 // processRequests sends the RPC request for the batch. It's guaranteed that after calling this function, requests
@@ -542,11 +545,13 @@ func tsoRequestFinisher(physical, firstLogical int64, streamID string) batch.Fin
 }
 
 func (td *tsoDispatcher) cancelCollectedRequests(tbc *batch.Controller[*Request], streamID string, err error) {
+	log.Info("[tso] cancel collected request", zap.String("streamID", streamID))
 	td.tokenCh <- struct{}{}
 	tbc.FinishCollectedRequests(tsoRequestFinisher(0, 0, streamID), err)
 }
 
 func (td *tsoDispatcher) doneCollectedRequests(tbc *batch.Controller[*Request], physical, firstLogical int64, streamID string) {
+	log.Info("[tso] done collected request", zap.String("streamID", streamID))
 	td.tokenCh <- struct{}{}
 	tbc.FinishCollectedRequests(tsoRequestFinisher(physical, firstLogical, streamID), nil)
 }

@@ -16,6 +16,7 @@ package batch
 
 import (
 	"context"
+	"github.com/pingcap/log"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -101,6 +102,7 @@ func (bc *Controller[T]) FetchPendingRequests(ctx context.Context, requestCh <-c
 			case <-ctx.Done():
 				return ctx.Err()
 			case req := <-requestCh:
+				log.Info("[tso] fetch pending requests from request channel")
 				// Start to batch when the first request arrives.
 				bc.pushRequest(req)
 				// A request arrives but the token is not ready yet. Continue waiting, and also allowing collecting the next
