@@ -30,21 +30,19 @@ import (
 	"github.com/pingcap/log"
 
 	"github.com/tikv/pd/client/opt"
-	cctx "github.com/tikv/pd/client/pkg/connectionctx"
 	sd "github.com/tikv/pd/client/servicediscovery"
 )
 
 type mockTSOServiceProvider struct {
 	option       *opt.Option
 	createStream func(ctx context.Context) *tsoStream
-	conCtxMgr    *cctx.Manager[*tsoStream]
+	updateConnMu sync.Mutex
 }
 
 func newMockTSOServiceProvider(option *opt.Option, createStream func(ctx context.Context) *tsoStream) *mockTSOServiceProvider {
 	return &mockTSOServiceProvider{
 		option:       option,
 		createStream: createStream,
-		conCtxMgr:    cctx.NewManager[*tsoStream](),
 	}
 }
 
@@ -56,21 +54,24 @@ func (*mockTSOServiceProvider) getServiceDiscovery() sd.ServiceDiscovery {
 	return sd.NewMockPDServiceDiscovery([]string{mockStreamURL}, nil)
 }
 
-func (m *mockTSOServiceProvider) getConnectionCtxMgr() *cctx.Manager[*tsoStream] {
-	return m.conCtxMgr
-}
+func (m *mockTSOServiceProvider) updateConnectionCtxs(ctx context.Context, connectionCtxs *sync.Map) bool {
+	// Avoid concurrent updating in the background updating goroutine and active updating in the dispatcher loop when
+	// stream is missing.
+	m.updateConnMu.Lock()
+	defer m.updateConnMu.Unlock()
 
-func (m *mockTSOServiceProvider) updateConnectionCtxs(ctx context.Context) bool {
-	if m.conCtxMgr.Exist(mockStreamURL) {
+	_, ok := connectionCtxs.Load(mockStreamURL)
+	if ok {
 		return true
 	}
+	ctx, cancel := context.WithCancel(ctx)
 	var stream *tsoStream
 	if m.createStream == nil {
 		stream = newTSOStream(ctx, mockStreamURL, newMockTSOStreamImpl(ctx, resultModeGenerated))
 	} else {
 		stream = m.createStream(ctx)
 	}
-	m.conCtxMgr.Store(ctx, mockStreamURL, stream)
+	connectionCtxs.LoadOrStore(mockStreamURL, &tsoConnectionContext{ctx, cancel, mockStreamURL, stream})
 	return true
 }
 

@@ -36,7 +36,6 @@ import (
 	"github.com/tikv/pd/client/errs"
 	"github.com/tikv/pd/client/metrics"
 	"github.com/tikv/pd/client/opt"
-	cctx "github.com/tikv/pd/client/pkg/connectionctx"
 	"github.com/tikv/pd/client/pkg/utils/grpcutil"
 	"github.com/tikv/pd/client/pkg/utils/tlsutil"
 	sd "github.com/tikv/pd/client/servicediscovery"
@@ -81,9 +80,7 @@ type Cli struct {
 	svcDiscovery sd.ServiceDiscovery
 	tsoStreamBuilderFactory
 	// leaderURL is the URL of the TSO leader.
-	leaderURL       atomic.Value
-	conCtxMgr       *cctx.Manager[*tsoStream]
-	updateConCtxsCh chan struct{}
+	leaderURL atomic.Value
 
 	// tsoReqPool is the pool to recycle `*tsoRequest`.
 	tsoReqPool *sync.Pool
@@ -103,8 +100,6 @@ func NewClient(
 		option:                  option,
 		svcDiscovery:            svcDiscovery,
 		tsoStreamBuilderFactory: factory,
-		conCtxMgr:               cctx.NewManager[*tsoStream](),
-		updateConCtxsCh:         make(chan struct{}, 1),
 		tsoReqPool: &sync.Pool{
 			New: func() any {
 				return &Request{
@@ -127,8 +122,6 @@ func (c *Cli) getOption() *opt.Option { return c.option }
 
 func (c *Cli) getServiceDiscovery() sd.ServiceDiscovery { return c.svcDiscovery }
 
-func (c *Cli) getConnectionCtxMgr() *cctx.Manager[*tsoStream] { return c.conCtxMgr }
-
 func (c *Cli) getDispatcher() *tsoDispatcher {
 	return c.dispatcher.Load()
 }
@@ -140,8 +133,6 @@ func (c *Cli) GetRequestPool() *sync.Pool {
 
 // Setup initializes the TSO client.
 func (c *Cli) Setup() {
-	// Daemon goroutine to update the connectionCtxs periodically and handle the `connectionCtxs` update event.
-	go c.connectionCtxsUpdater()
 	if err := c.svcDiscovery.CheckMemberChanged(); err != nil {
 		log.Warn("[tso] failed to check member changed", errs.ZapError(err))
 	}
@@ -163,12 +154,9 @@ func (c *Cli) Close() {
 	log.Info("[tso] tso client is closed")
 }
 
-// scheduleUpdateTSOConnectionCtxs schedules the update of the TSO connection contexts.
+// scheduleUpdateTSOConnectionCtxs update the TSO connection contexts.
 func (c *Cli) scheduleUpdateTSOConnectionCtxs() {
-	select {
-	case c.updateConCtxsCh <- struct{}{}:
-	default:
-	}
+	c.getDispatcher().scheduleUpdateConnectionCtxs()
 }
 
 // GetTSORequest gets a TSO request from the pool.
@@ -243,6 +231,7 @@ func (c *Cli) backupClientConn() (*grpc.ClientConn, string) {
 	return nil, ""
 }
 
+<<<<<<< HEAD
 // connectionCtxsUpdater updates the `connectionCtxs` regularly.
 func (c *Cli) connectionCtxsUpdater() {
 	log.Info("[tso] start tso connection contexts updater")
@@ -295,17 +284,27 @@ func (c *Cli) connectionCtxsUpdater() {
 			// Triggered by the leader/follower change.
 		}
 	}
+=======
+// tsoConnectionContext is used to store the context of a TSO stream connection.
+type tsoConnectionContext struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	// Current URL of the stream connection.
+	streamURL string
+	// Current stream to send gRPC requests.
+	stream *tsoStream
+>>>>>>> parent of 8cd72333f (client: introduce the connection ctx manager (#8940))
 }
 
 // updateConnectionCtxs will choose the proper way to update the connections.
 // It will return a bool to indicate whether the update is successful.
-func (c *Cli) updateConnectionCtxs(ctx context.Context) bool {
+func (c *Cli) updateConnectionCtxs(ctx context.Context, connectionCtxs *sync.Map) bool {
 	// Normal connection creating, it will be affected by the `enableForwarding`.
 	createTSOConnection := c.tryConnectToTSO
 	if c.option.GetEnableTSOFollowerProxy() {
 		createTSOConnection = c.tryConnectToTSOWithProxy
 	}
-	if err := createTSOConnection(ctx); err != nil {
+	if err := createTSOConnection(ctx, connectionCtxs); err != nil {
 		log.Error("[tso] update connection contexts failed", errs.ZapError(err))
 		return false
 	}
@@ -316,13 +315,30 @@ func (c *Cli) updateConnectionCtxs(ctx context.Context) bool {
 // and enableForwarding is true, it will create a new connection to a follower to do the forwarding,
 // while a new daemon will be created also to switch back to a normal leader connection ASAP the
 // connection comes back to normal.
-func (c *Cli) tryConnectToTSO(ctx context.Context) error {
+func (c *Cli) tryConnectToTSO(
+	ctx context.Context,
+	connectionCtxs *sync.Map,
+) error {
 	var (
-		networkErrNum uint64
-		err           error
-		stream        *tsoStream
-		url           string
-		cc            *grpc.ClientConn
+		networkErrNum  uint64
+		err            error
+		stream         *tsoStream
+		url            string
+		cc             *grpc.ClientConn
+		updateAndClear = func(newURL string, connectionCtx *tsoConnectionContext) {
+			// Only store the `connectionCtx` if it does not exist before.
+			if connectionCtx != nil {
+				connectionCtxs.LoadOrStore(newURL, connectionCtx)
+			}
+			// Remove all other `connectionCtx`s.
+			connectionCtxs.Range(func(url, cc any) bool {
+				if url.(string) != newURL {
+					cc.(*tsoConnectionContext).cancel()
+					connectionCtxs.Delete(url)
+				}
+				return true
+			})
+		}
 	)
 
 	ticker := time.NewTicker(constants.RetryInterval)
@@ -331,9 +347,9 @@ func (c *Cli) tryConnectToTSO(ctx context.Context) error {
 	for range constants.MaxRetryTimes {
 		c.svcDiscovery.ScheduleCheckMemberChanged()
 		cc, url = c.getTSOLeaderClientConn()
-		if c.conCtxMgr.Exist(url) {
+		if _, ok := connectionCtxs.Load(url); ok {
 			// Just trigger the clean up of the stale connection contexts.
-			c.conCtxMgr.CleanAllAndStore(ctx, url)
+			updateAndClear(url, nil)
 			return nil
 		}
 		if cc != nil {
@@ -344,7 +360,7 @@ func (c *Cli) tryConnectToTSO(ctx context.Context) error {
 				err = status.New(codes.Unavailable, "unavailable").Err()
 			})
 			if stream != nil && err == nil {
-				c.conCtxMgr.CleanAllAndStore(ctx, url, stream)
+				updateAndClear(url, &tsoConnectionContext{cctx, cancel, url, stream})
 				return nil
 			}
 
@@ -387,9 +403,9 @@ func (c *Cli) tryConnectToTSO(ctx context.Context) error {
 				forwardedHostTrim := tlsutil.TrimHTTPPrefix(forwardedHost)
 				addr := tlsutil.TrimHTTPPrefix(backupURL)
 				// the goroutine is used to check the network and change back to the original stream
-				go c.checkLeader(ctx, cancel, forwardedHostTrim, addr, url)
+				go c.checkLeader(ctx, cancel, forwardedHostTrim, addr, url, updateAndClear)
 				metrics.RequestForwarded.WithLabelValues(forwardedHostTrim, addr).Set(1)
-				c.conCtxMgr.CleanAllAndStore(ctx, backupURL, stream)
+				updateAndClear(backupURL, &tsoConnectionContext{cctx, cancel, backupURL, stream})
 				return nil
 			}
 			cancel()
@@ -402,6 +418,7 @@ func (c *Cli) checkLeader(
 	ctx context.Context,
 	forwardCancel context.CancelFunc,
 	forwardedHostTrim, addr, url string,
+	updateAndClear func(newAddr string, connectionCtx *tsoConnectionContext),
 ) {
 	defer func() {
 		// cancel the forward stream
@@ -434,7 +451,7 @@ func (c *Cli) checkLeader(
 				stream, err := c.tsoStreamBuilderFactory.makeBuilder(cc).build(cctx, cancel, c.option.Timeout)
 				if err == nil && stream != nil {
 					log.Info("[tso] recover the original tso stream since the network has become normal", zap.String("url", url))
-					c.conCtxMgr.CleanAllAndStore(ctx, url, stream)
+					updateAndClear(url, &tsoConnectionContext{cctx, cancel, url, stream})
 					return
 				}
 			}
@@ -451,7 +468,10 @@ func (c *Cli) checkLeader(
 
 // tryConnectToTSOWithProxy will create multiple streams to all the service endpoints to work as
 // a TSO proxy to reduce the pressure of the main serving service endpoint.
-func (c *Cli) tryConnectToTSOWithProxy(ctx context.Context) error {
+func (c *Cli) tryConnectToTSOWithProxy(
+	ctx context.Context,
+	connectionCtxs *sync.Map,
+) error {
 	tsoStreamBuilders := c.getAllTSOStreamBuilders()
 	leaderAddr := c.svcDiscovery.GetServingURL()
 	forwardedHost := c.getLeaderURL()
@@ -459,17 +479,20 @@ func (c *Cli) tryConnectToTSOWithProxy(ctx context.Context) error {
 		return errors.Errorf("cannot find the tso leader")
 	}
 	// GC the stale one.
-	c.conCtxMgr.GC(func(addr string) bool {
-		_, ok := tsoStreamBuilders[addr]
-		if !ok {
+	connectionCtxs.Range(func(addr, cc any) bool {
+		addrStr := addr.(string)
+		if _, ok := tsoStreamBuilders[addrStr]; !ok {
 			log.Info("[tso] remove the stale tso stream",
-				zap.String("addr", addr))
+				zap.String("addr", addrStr))
+			cc.(*tsoConnectionContext).cancel()
+			connectionCtxs.Delete(addr)
 		}
-		return !ok
+		return true
 	})
 	// Update the missing one.
 	for addr, tsoStreamBuilder := range tsoStreamBuilders {
-		if c.conCtxMgr.Exist(addr) {
+		_, ok := connectionCtxs.Load(addr)
+		if ok {
 			continue
 		}
 		log.Info("[tso] try to create tso stream", zap.String("addr", addr))
@@ -488,7 +511,7 @@ func (c *Cli) tryConnectToTSOWithProxy(ctx context.Context) error {
 				addrTrim := tlsutil.TrimHTTPPrefix(addr)
 				metrics.RequestForwarded.WithLabelValues(forwardedHostTrim, addrTrim).Set(1)
 			}
-			c.conCtxMgr.Store(ctx, addr, stream)
+			connectionCtxs.Store(addr, &tsoConnectionContext{cctx, cancel, addr, stream})
 			continue
 		}
 		log.Error("[tso] create the tso stream failed",
