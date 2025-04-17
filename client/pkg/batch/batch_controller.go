@@ -18,6 +18,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/pingcap/log"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -86,12 +87,14 @@ func (bc *Controller[T]) FetchPendingRequests(ctx context.Context, requestCh <-c
 		// requests, and return when token is ready.
 		if bc.collectedRequestCount >= bc.maxBatchSize && !tokenAcquired {
 			if tokenCh == nil {
+				log.Info("token channel is nil, but the batch size has reached the maxBatchSize limit")
 				return nil
 			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-tokenCh:
+				log.Info("token channel is ready, but the batch size has reached the maxBatchSize limit")
 				return nil
 			}
 		}
@@ -101,6 +104,7 @@ func (bc *Controller[T]) FetchPendingRequests(ctx context.Context, requestCh <-c
 			case <-ctx.Done():
 				return ctx.Err()
 			case req := <-requestCh:
+				log.Info("request channel is ready, but the token is not ready yet")
 				// Start to batch when the first request arrives.
 				bc.pushRequest(req)
 				// A request arrives but the token is not ready yet. Continue waiting, and also allowing collecting the next
