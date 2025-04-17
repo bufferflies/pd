@@ -111,6 +111,7 @@ func (bc *Controller[T]) FetchPendingRequests(ctx context.Context, requestCh <-c
 				// request if it arrives.
 				continue
 			case <-tokenCh:
+				log.Info("reveive token from token channel")
 				tokenAcquired = true
 			}
 		}
