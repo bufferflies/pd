@@ -104,7 +104,6 @@ func (bc *Controller[T]) FetchPendingRequests(ctx context.Context, requestCh <-c
 			case <-ctx.Done():
 				return ctx.Err()
 			case req := <-requestCh:
-				log.Info("request channel is ready, but the token is not ready yet")
 				// Start to batch when the first request arrives.
 				bc.pushRequest(req)
 				// A request arrives but the token is not ready yet. Continue waiting, and also allowing collecting the next

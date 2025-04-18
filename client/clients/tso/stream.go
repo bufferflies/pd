@@ -343,6 +343,7 @@ func (s *tsoStream) recvLoop(ctx context.Context) {
 
 		s.stoppedWithErr.Store(&finishWithErr)
 		s.cancel()
+		log.Info("tsoStream.recvLoop begin to exit", zap.String("stream", s.streamID), zap.Error(finishWithErr))
 		for !s.state.CompareAndSwap(streamStateIdle, streamStateClosing) {
 			switch state := s.state.Load(); state {
 			case streamStateIdle, streamStateSending:

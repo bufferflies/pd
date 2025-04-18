@@ -304,6 +304,7 @@ tsoBatchLoop:
 				timer := time.NewTimer(constants.RetryInterval)
 				select {
 				case <-ctx.Done():
+					log.Error("[tso] tso stream is canceled", zap.Error(ctx.Err()))
 					// Finish the collected requests if the context is canceled.
 					td.cancelCollectedRequests(tsoBatchController, invalidStreamID, errors.WithStack(ctx.Err()))
 					timer.Stop()
@@ -337,6 +338,7 @@ tsoBatchLoop:
 				exit := !td.handleProcessRequestError(ctx, bo, streamURL, cancel, err)
 				stream = nil
 				if exit {
+					log.Error("[tso] tso stream is canceled", zap.String("stream-url", streamURL), zap.Error(err))
 					td.cancelCollectedRequests(tsoBatchController, invalidStreamID, errors.WithStack(ctx.Err()))
 					return
 				}
@@ -400,6 +402,7 @@ tsoBatchLoop:
 		dl := newTSDeadline(option.Timeout, done, cancel)
 		select {
 		case <-ctx.Done():
+			log.Error("[tso] tso stream is canceled", zap.Error(ctx.Err()))
 			// Finish the collected requests if the context is canceled.
 			td.cancelCollectedRequests(tsoBatchController, invalidStreamID, errors.WithStack(ctx.Err()))
 			return
@@ -626,6 +629,7 @@ func tsoRequestFinisher(physical, firstLogical int64, streamID string) batch.Fin
 }
 
 func (td *tsoDispatcher) cancelCollectedRequests(tbc *batch.Controller[*Request], streamID string, err error) {
+	log.Warn("[tso] cancel collected tso requests", zap.Error(err))
 	td.tokenCh <- struct{}{}
 	tbc.FinishCollectedRequests(tsoRequestFinisher(0, 0, streamID), err)
 }
