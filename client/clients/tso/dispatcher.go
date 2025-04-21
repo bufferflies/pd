@@ -56,7 +56,7 @@ type tsoServiceProvider interface {
 	getOption() *opt.Option
 	getServiceDiscovery() sd.ServiceDiscovery
 	getConnectionCtxMgr() *cctx.Manager[*tsoStream]
-	updateConnectionCtxs(ctx context.Context) bool
+	updateConnectionCtxs(ctx context.Context, leaderChanged bool) bool
 }
 
 const dispatcherCheckRPCConcurrencyInterval = time.Second * 5
@@ -235,7 +235,7 @@ tsoBatchLoop:
 			// Check stream and retry if necessary.
 			if stream == nil {
 				log.Info("[tso] tso stream is not ready")
-				if provider.updateConnectionCtxs(ctx) {
+				if provider.updateConnectionCtxs(ctx, false) {
 					continue streamChoosingLoop
 				}
 				timer := time.NewTimer(constants.RetryInterval)

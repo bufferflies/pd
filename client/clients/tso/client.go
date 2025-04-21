@@ -266,8 +266,10 @@ func (c *Cli) connectionCtxsUpdater() {
 
 	ctx, cancel := context.WithCancel(c.ctx)
 	defer cancel()
+	leaderChanged := false
 	for {
-		c.updateConnectionCtxs(ctx)
+		c.updateConnectionCtxs(ctx, leaderChanged)
+		leaderChanged = false
 		select {
 		case <-ctx.Done():
 			log.Info("[tso] exit tso connection contexts updater")
@@ -292,19 +294,20 @@ func (c *Cli) connectionCtxsUpdater() {
 			// Triggered periodically when the TSO Follower Proxy is enabled.
 		case <-c.updateConCtxsCh:
 			// Triggered by the leader/follower change.
+			leaderChanged = true
 		}
 	}
 }
 
 // updateConnectionCtxs will choose the proper way to update the connections.
 // It will return a bool to indicate whether the update is successful.
-func (c *Cli) updateConnectionCtxs(ctx context.Context) bool {
+func (c *Cli) updateConnectionCtxs(ctx context.Context, leaderChanged bool) bool {
 	// Normal connection creating, it will be affected by the `enableForwarding`.
 	createTSOConnection := c.tryConnectToTSO
 	if c.option.GetEnableTSOFollowerProxy() {
 		createTSOConnection = c.tryConnectToTSOWithProxy
 	}
-	if err := createTSOConnection(ctx); err != nil {
+	if err := createTSOConnection(ctx, leaderChanged); err != nil {
 		log.Error("[tso] update connection contexts failed", errs.ZapError(err))
 		return false
 	}
@@ -315,7 +318,7 @@ func (c *Cli) updateConnectionCtxs(ctx context.Context) bool {
 // and enableForwarding is true, it will create a new connection to a follower to do the forwarding,
 // while a new daemon will be created also to switch back to a normal leader connection ASAP the
 // connection comes back to normal.
-func (c *Cli) tryConnectToTSO(ctx context.Context) error {
+func (c *Cli) tryConnectToTSO(ctx context.Context, _ bool) error {
 	var (
 		networkErrNum uint64
 		err           error
@@ -454,7 +457,7 @@ func (c *Cli) checkLeader(
 
 // tryConnectToTSOWithProxy will create multiple streams to all the service endpoints to work as
 // a TSO proxy to reduce the pressure of the main serving service endpoint.
-func (c *Cli) tryConnectToTSOWithProxy(ctx context.Context) error {
+func (c *Cli) tryConnectToTSOWithProxy(ctx context.Context, leaderChanged bool) error {
 	tsoStreamBuilders := c.getAllTSOStreamBuilders()
 	leaderAddr := c.svcDiscovery.GetServingURL()
 	forwardedHost := c.getLeaderURL()
@@ -472,7 +475,7 @@ func (c *Cli) tryConnectToTSOWithProxy(ctx context.Context) error {
 	})
 	// Update the missing one.
 	for addr, tsoStreamBuilder := range tsoStreamBuilders {
-		if c.conCtxMgr.Exist(addr) {
+		if c.conCtxMgr.Exist(addr) && !leaderChanged {
 			continue
 		}
 		log.Info("[tso] try to create tso stream", zap.String("addr", addr))
