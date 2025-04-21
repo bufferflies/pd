@@ -332,6 +332,7 @@ func (c *Cli) tryConnectToTSO(ctx context.Context) error {
 		cc, url = c.getTSOLeaderClientConn()
 		if c.conCtxMgr.Exist(url) {
 			cctx, cancel := context.WithCancel(ctx)
+			log.Info("try connect to tso and clean up the stale connection contexts", zap.String("url", url))
 			// Just trigger the clean up of the stale connection contexts.
 			c.conCtxMgr.CleanAllAndStore(cctx, cancel, url)
 			return nil
@@ -344,6 +345,7 @@ func (c *Cli) tryConnectToTSO(ctx context.Context) error {
 				err = status.New(codes.Unavailable, "unavailable").Err()
 			})
 			if stream != nil && err == nil {
+				log.Info("[tso] create the tso stream successfully", zap.String("url", url))
 				c.conCtxMgr.CleanAllAndStore(cctx, cancel, url, stream)
 				return nil
 			}
@@ -389,6 +391,7 @@ func (c *Cli) tryConnectToTSO(ctx context.Context) error {
 				// the goroutine is used to check the network and change back to the original stream
 				go c.checkLeader(ctx, cancel, forwardedHostTrim, addr, url)
 				metrics.RequestForwarded.WithLabelValues(forwardedHostTrim, addr).Set(1)
+				log.Info("[tso] create the tso stream successfully", zap.String("url", backupURL))
 				c.conCtxMgr.CleanAllAndStore(cctx, cancel, backupURL, stream)
 				return nil
 			}
