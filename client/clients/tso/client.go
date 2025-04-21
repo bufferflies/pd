@@ -467,15 +467,15 @@ func (c *Cli) tryConnectToTSOWithProxy(ctx context.Context, leaderChanged bool) 
 	// GC the stale one.
 	c.conCtxMgr.GC(func(addr string) bool {
 		_, ok := tsoStreamBuilders[addr]
-		if !ok {
+		if !ok || leaderChanged {
 			log.Info("[tso] remove the stale tso stream",
-				zap.String("addr", addr))
+				zap.String("addr", addr), zap.Bool("leaderChanged", leaderChanged))
 		}
-		return !ok
+		return !ok || leaderChanged
 	})
 	// Update the missing one.
 	for addr, tsoStreamBuilder := range tsoStreamBuilders {
-		if c.conCtxMgr.Exist(addr) && !leaderChanged {
+		if c.conCtxMgr.Exist(addr) {
 			continue
 		}
 		log.Info("[tso] try to create tso stream", zap.String("addr", addr))
