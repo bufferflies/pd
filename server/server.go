@@ -1395,6 +1395,14 @@ func (s *Server) GetTLSConfig() *grpcutil.TLSConfig {
 	return &s.cfg.Security.TLSConfig
 }
 
+// GetTSOIndex returns the tso max index and unique index.
+func (s *Server) GetTSOIndex() (int64, int64) {
+	if s.cfg.TSOMaxIndex <= 0 {
+		return 1, 0
+	}
+	return s.cfg.TSOMaxIndex, s.cfg.TSOUniqueIndex
+}
+
 // GetControllerConfig gets the resource manager controller config.
 func (s *Server) GetControllerConfig() *rm_server.ControllerConfig {
 	return &s.cfg.Controller

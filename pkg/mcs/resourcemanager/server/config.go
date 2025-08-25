@@ -279,3 +279,8 @@ func (c *Config) GetAdvertiseListenAddr() string {
 func (c *Config) GetTLSConfig() *grpcutil.TLSConfig {
 	return &c.Security.TLSConfig
 }
+
+// GetTSOIndex returns the tso unique index and max index.
+func (c *Config) GetTSOIndex() (int64, int64) {
+	return 0, 0
+}
