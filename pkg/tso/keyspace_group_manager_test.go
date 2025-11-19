@@ -723,7 +723,7 @@ func (suite *keyspaceGroupManagerTestSuite) runTestLoadKeyspaceGroupsAssignment(
 	re *require.Assertions,
 	numberOfKeyspaceGroupsToAdd int,
 	loadKeyspaceGroupsBatchSize int64, // set to 0 to use the default value
-	probabilityAssignToMe int, // percentage of assigning keyspace groups to this host/pod
+	probabilityAssignToMe int,         // percentage of assigning keyspace groups to this host/pod
 ) {
 	expectedGroupIDs := []uint32{}
 	mgr := suite.newUniqueKeyspaceGroupManager(loadKeyspaceGroupsBatchSize)
@@ -918,6 +918,97 @@ func collectAllLoadedKeyspaceGroupIDs(kgm *KeyspaceGroupManager) []uint32 {
 	}
 
 	return ids
+}
+
+func (suite *keyspaceGroupManagerTestSuite) TestUpdateKeyspaceGroup() {
+	re := suite.Require()
+	tsoServiceID := &discovery.ServiceRegistryEntry{ServiceAddr: suite.cfg.AdvertiseListenAddr}
+	clusterID, err := endpoint.InitClusterID(suite.etcdClient)
+	re.NoError(err)
+	clusterIDStr := strconv.FormatUint(clusterID, 10)
+	keypath.SetClusterID(clusterID)
+
+	legacySvcRootPath := path.Join("/pd", clusterIDStr)
+	tsoSvcRootPath := path.Join(constant.MicroserviceRootPath, clusterIDStr, "tso")
+	electionNamePrefix := "tso-server-" + clusterIDStr
+	groupID := uint32(1)
+
+	kgm := NewKeyspaceGroupManager(
+		suite.ctx, tsoServiceID, suite.etcdClient, nil, electionNamePrefix,
+		legacySvcRootPath, tsoSvcRootPath, suite.cfg)
+	defer kgm.Close()
+	re.NoError(kgm.Initialize())
+
+	index := 1
+	checkFn := func(address string, exist bool) {
+		newGroup := &endpoint.KeyspaceGroup{
+			ID:        groupID,
+			Keyspaces: []uint32{1, 2, 3, 10, 6},
+			Members:   []endpoint.KeyspaceGroupMember{{Address: address, Priority: 1}},
+		}
+		kgm.updateKeyspaceGroup(newGroup)
+		for _, id := range []uint32{6} {
+			groupID1, ok := kgm.keyspaceLookupTable[id]
+			debug := fmt.Sprintf("checkFn index:%d address:%s id:%d", index, address, id)
+			if exist {
+				re.True(ok, debug)
+				re.Equal(groupID, groupID1, debug)
+			} else {
+				re.False(ok, debug)
+			}
+		}
+		index++
+	}
+
+	// watch resign
+	checkFn("", true)
+	// watch create
+	checkFn(kgm.cfg.GetAdvertiseListenAddr(), true)
+
+	// watch another tso restart
+	checkFn(kgm.cfg.GetAdvertiseListenAddr(), false)
+	// watch another event
+	newGroup := &endpoint.KeyspaceGroup{
+		ID:        groupID,
+		Keyspaces: []uint32{1, 2, 3, 10, 6, 11},
+		Members:   []endpoint.KeyspaceGroupMember{{Address: kgm.cfg.GetAdvertiseListenAddr(), Priority: 1}},
+	}
+	kgm.updateKeyspaceGroup(newGroup)
+	for _, id := range []uint32{6, 10, 11} {
+		groupID1, ok := kgm.keyspaceLookupTable[id]
+		debug := fmt.Sprintf("checkFn index:%d address:%s id:%d", index, kgm.cfg.GetAdvertiseListenAddr(), id)
+		re.True(ok, debug)
+		re.Equal(groupID, groupID1, debug)
+	}
+	index++
+}
+
+func (suite *keyspaceGroupManagerTestSuite) TestStaleCache() {
+	re := suite.Require()
+	groupID := uint32(1)
+	oldGroup := &endpoint.KeyspaceGroup{ID: groupID, Keyspaces: []uint32{}}
+	newGroup := &endpoint.KeyspaceGroup{ID: groupID, Keyspaces: []uint32{1, 2, 3, 10, 6}}
+	kgm := &KeyspaceGroupManager{
+		state: state{
+			keyspaceLookupTable: make(map[uint32]uint32),
+		},
+	}
+
+	kgm.updateKeyspaceGroupMembership(oldGroup, newGroup, true)
+	for _, id := range []uint32{6, 10} {
+		groupID1, ok := kgm.keyspaceLookupTable[id]
+		re.True(ok)
+		re.Equal(groupID, groupID1)
+	}
+
+	oldGroup = &endpoint.KeyspaceGroup{ID: groupID, Keyspaces: []uint32{1, 2, 3, 10, 6}}
+	newGroup = &endpoint.KeyspaceGroup{ID: groupID, Keyspaces: []uint32{1, 2, 3, 10, 6}}
+	kgm.updateKeyspaceGroupMembership(oldGroup, newGroup, true)
+	for _, id := range []uint32{6, 10} {
+		groupID1, ok := kgm.keyspaceLookupTable[id]
+		re.True(ok, id)
+		re.Equal(groupID, groupID1)
+	}
 }
 
 func (suite *keyspaceGroupManagerTestSuite) TestUpdateKeyspaceGroupMembership() {
