@@ -180,6 +180,7 @@ func (m *Manager) Init(ctx context.Context) error {
 
 	// Start the background metrics flusher.
 	go m.backgroundMetricsFlush(ctx)
+	go m.testSend(ctx)
 	go func() {
 		defer logutil.LogPanic()
 		m.persistLoop(ctx)
@@ -353,6 +354,29 @@ func (m *Manager) persistResourceGroupRunningState() {
 			}
 		}
 		m.RUnlock()
+	}
+}
+
+func (m *Manager) testSend(ctx context.Context) {
+	tick := time.NewTicker(time.Millisecond * 100)
+	defer tick.Stop()
+	consumption := &rmpb.Consumption{
+		RRU: 100,
+		WRU: 5,
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			m.consumptionDispatcher <- struct {
+				resourceGroupName string
+				*rmpb.Consumption
+				isBackground bool
+				isTiFlash    bool
+			}{"test", consumption, false, false}
+		}
 	}
 }
 
