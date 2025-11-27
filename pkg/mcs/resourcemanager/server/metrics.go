@@ -69,6 +69,21 @@ var (
 			Help:      "Gauge of the max write request unit per second for all resource groups.",
 		}, []string{newResourceGroupNameLabel})
 
+	readRequestUnitSumPerSecCost = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: ruSubsystem,
+			Name:      "read_request_unit_sum_per_sec",
+			Help:      "Gauge of the max read request unit per second for all resource groups.",
+		}, []string{newResourceGroupNameLabel})
+	writeRequestUnitSumPerSecCost = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: ruSubsystem,
+			Name:      "write_request_unit_sum_per_sec",
+			Help:      "Gauge of the max write request unit per second for all resource groups.",
+		}, []string{newResourceGroupNameLabel})
+
 	sqlLayerRequestUnitCost = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: namespace,
@@ -144,4 +159,6 @@ func init() {
 	prometheus.MustRegister(readRequestUnitMaxPerSecCost)
 	prometheus.MustRegister(writeRequestUnitMaxPerSecCost)
 	prometheus.MustRegister(resourceGroupConfigGauge)
+	prometheus.MustRegister(readRequestUnitSumPerSecCost)
+	prometheus.MustRegister(writeRequestUnitSumPerSecCost)
 }

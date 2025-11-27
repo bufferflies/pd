@@ -424,6 +424,10 @@ func (m *Manager) backgroundMetricsFlush(ctx context.Context) {
 				t = newMaxPerSecCostTracker(name, defaultCollectIntervalSec)
 				maxPerSecTrackers[name] = t
 			}
+			if name == "default" {
+				log.Info("default group consumption", zap.Float64("rru", consumption.RRU), zap.Float64("wru", consumption.WRU),
+					zap.Float64("rru-last-sum", t.lastRRUSum), zap.Float64("rru-sum-new", t.rruSum), zap.Float64("diff", t.rruSum-t.lastRRUSum))
+			}
 			t.CollectConsumption(consumption)
 
 			// RU info.
@@ -512,13 +516,16 @@ func (m *Manager) backgroundMetricsFlush(ctx context.Context) {
 				names = append(names, name)
 			}
 			m.RUnlock()
-			for _, name := range names {
-				if t, ok := maxPerSecTrackers[name]; !ok {
-					maxPerSecTrackers[name] = newMaxPerSecCostTracker(name, defaultCollectIntervalSec)
-				} else {
-					t.FlushMetrics()
-				}
+			for _, t := range maxPerSecTrackers {
+				t.FlushMetrics()
 			}
+			// for _, name := range names {
+			// 	if t, ok := maxPerSecTrackers[name]; !ok {
+			// 		maxPerSecTrackers[name] = newMaxPerSecCostTracker(name, defaultCollectIntervalSec)
+			// 	} else {
+			// 		t.FlushMetrics()
+			// 	}
+			// }
 		}
 	}
 }
@@ -535,6 +542,8 @@ type maxPerSecCostTracker struct {
 	cnt           int
 	rruMaxMetrics prometheus.Gauge
 	wruMaxMetrics prometheus.Gauge
+	rruSumMetrics prometheus.Gauge
+	wruSumMetrics prometheus.Gauge
 }
 
 func newMaxPerSecCostTracker(name string, flushPeriod int) *maxPerSecCostTracker {
@@ -543,6 +552,8 @@ func newMaxPerSecCostTracker(name string, flushPeriod int) *maxPerSecCostTracker
 		flushPeriod:   flushPeriod,
 		rruMaxMetrics: readRequestUnitMaxPerSecCost.WithLabelValues(name),
 		wruMaxMetrics: writeRequestUnitMaxPerSecCost.WithLabelValues(name),
+		rruSumMetrics: readRequestUnitSumPerSecCost.WithLabelValues(name),
+		wruSumMetrics: writeRequestUnitSumPerSecCost.WithLabelValues(name),
 	}
 }
 
@@ -574,6 +585,8 @@ func (t *maxPerSecCostTracker) FlushMetrics() {
 	if t.cnt%t.flushPeriod == 0 {
 		t.rruMaxMetrics.Set(t.maxPerSecRRU)
 		t.wruMaxMetrics.Set(t.maxPerSecWRU)
+		t.rruSumMetrics.Set(t.rruSum)
+		t.wruSumMetrics.Set(t.wruSum)
 		t.maxPerSecRRU = 0
 		t.maxPerSecWRU = 0
 	}
