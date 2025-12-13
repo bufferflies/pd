@@ -175,7 +175,9 @@ func (c *innerClient) disableRouterServiceClient() {
 func (c *innerClient) enableRouterServiceClient() {
 	c.Lock()
 	defer c.Unlock()
-	c.routerSvcDiscovery.Init()
+	if err := c.routerSvcDiscovery.Init(); err != nil {
+		log.Warn("[pd] init router service client failed", zap.Error(err))
+	}
 }
 
 func (c *innerClient) setServiceMode(newMode pdpb.ServiceMode) {
@@ -331,9 +333,15 @@ func (c *innerClient) getServiceClient(ctx context.Context, options *opt.GetRegi
 		mustLeader = false
 		serviceClient = c.serviceDiscovery.GetServiceClientByKind(sd.UniversalAPIKind)
 	}
+	log.Info("[pd] get service client", zap.Bool("leader", mustLeader),
+		zap.Bool("isRouterClient", isRouterClient),
+		zap.String("client-address", serviceClient.GetURL()),
+		zap.Any("router-discovery", c.routerSvcDiscovery),
+	)
 	if serviceClient != nil && serviceClient.GetClientConn() != nil && serviceClient.Available() {
 		return serviceClient, serviceClient.BuildGRPCTargetContext(ctx, mustLeader), isRouterClient
 	}
+	isRouterClient = false
 	serviceClient = c.serviceDiscovery.GetServiceClient()
 	if serviceClient == nil || serviceClient.GetClientConn() == nil {
 		return nil, ctx, false

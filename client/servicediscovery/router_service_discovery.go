@@ -64,9 +64,10 @@ type routerServiceDiscovery struct {
 
 	checkMembershipCh chan struct{}
 
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	parentCtx context.Context
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
 
 	// Client option.
 	option *opt.Option
@@ -132,12 +133,10 @@ func NewRouterServiceDiscovery(
 	ctx context.Context, metaCli metastorage.Client, serviceDiscovery ServiceDiscovery,
 	tlsCfg *tls.Config, option *opt.Option,
 ) ServiceDiscovery {
-	ctx, cancel := context.WithCancel(ctx)
 	balancer := newServiceBalancer(emptyErrorFn)
 	c := &routerServiceDiscovery{
-		ctx:               ctx,
+		parentCtx:         ctx,
 		ServiceDiscovery:  serviceDiscovery,
-		cancel:            cancel,
 		metaCli:           metaCli,
 		tlsCfg:            tlsCfg,
 		option:            option,
@@ -161,11 +160,11 @@ func (r *routerServiceDiscovery) Init() error {
 	log.Info("initializing router service discovery",
 		zap.Int("max-retry-times", r.option.MaxRetryTimes),
 		zap.Duration("retry-interval", initRetryInterval))
+	r.ctx, r.cancel = context.WithCancel(r.parentCtx)
 	if err := r.CheckMemberChanged(); err != nil {
-		r.cancel()
 		log.Warn("failed to initialize router service discovery", zap.Error(err))
-		return err
 	}
+	log.Info("router service discovery initialized")
 	r.wg.Add(2)
 	go r.startCheckMemberLoop()
 	go r.nodeHealthCheckLoop()
@@ -175,13 +174,16 @@ func (r *routerServiceDiscovery) Init() error {
 func (r *routerServiceDiscovery) updateMember() error {
 	urls, err := getMSMembers(r.ctx, r.defaultDiscoveryKey, r.metaCli)
 	if err != nil {
+		log.Warn("[router service] failed to get router service member infos", zap.Error(err))
 		return err
 	}
 	if len(urls) == 0 {
+		log.Info("[router service] router service node is nil", zap.Error(err))
 		return errs.ErrClientNoAvailableMember.GenWithStackByArgs()
 	}
 	changed := r.nodesChanged(urls)
 	if !changed {
+		log.Info("[router service] router service node is changed")
 		return nil
 	}
 	r.updateURLs(urls)
@@ -206,6 +208,7 @@ func (r *routerServiceDiscovery) updateNodes(urls []string) {
 						log.Warn("[pd] failed to connect follower", zap.String("follower", url), errs.ZapError(err))
 						continue
 					}
+					log.Info("create new grpc connection for router service", zap.String("url", url))
 					node := newPDServiceClient(url, r.GetServingURL(), conn, false)
 					r.nodes.Store(url, node)
 				}
@@ -224,6 +227,7 @@ func (r *routerServiceDiscovery) updateNodes(urls []string) {
 		clients = append(clients, value.(*serviceClient))
 		return true
 	})
+	log.Info("[router service] updating router service discovery", zap.Strings("urls", urls), zap.Int("num-clients", len(clients)))
 	r.balancer.set(clients)
 }
 
@@ -238,7 +242,7 @@ func (r *routerServiceDiscovery) updateURLs(urls []string) {
 	r.sortedUrls.Store(urls)
 	// Run callbacks to reflect the membership changes in the leader and followers.
 	r.callbacks.onMembersChanged()
-	log.Info("[router service] update member sortedUrls", zap.Strings("new-sortedUrls", urls))
+	log.Info("[router service] update member sortedUrls", zap.Strings("new-sorted-urls", urls))
 }
 
 func (r *routerServiceDiscovery) startCheckMemberLoop() {
@@ -287,9 +291,8 @@ func innerRetry(
 
 // Close releases all resources
 func (r *routerServiceDiscovery) Close() {
-	log.Info("closing router service discovery")
+	log.Info("closing router service discovery", zap.Strings("urls", r.GetServiceURLs()))
 	r.cancel()
-	r.wg.Wait()
 
 	r.clientConns.Range(func(key, cc any) bool {
 		if err := cc.(*grpc.ClientConn).Close(); err != nil {
@@ -298,8 +301,11 @@ func (r *routerServiceDiscovery) Close() {
 		r.clientConns.Delete(key)
 		return true
 	})
-
+	r.sortedUrls.Store([]string{})
+	r.balancer = newServiceBalancer(emptyErrorFn)
+	r.nodes.Clear()
 	log.Info("router service discovery is closed")
+	r.wg.Wait()
 }
 
 // getMSMembers returns all the members of the specified service name.
@@ -366,6 +372,7 @@ func (r *routerServiceDiscovery) nodeHealthCheckLoop() {
 	for {
 		select {
 		case <-r.ctx.Done():
+			log.Info("[router service] exit health check member")
 			return
 		case <-ticker.C:
 			r.checkNodeHealth(nodeCheckLoopCtx)

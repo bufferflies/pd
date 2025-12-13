@@ -159,6 +159,16 @@ func (suite *serverTestSuite) TestStoreAPI() {
 	re.NoError(cli.UpdateOption(opt.EnableRouterServiceHandler, false))
 	_, err = cli.GetStore(suite.ctx, store1)
 	re.Error(err)
+
+	re.NoError(cli.UpdateOption(opt.EnableRouterServiceHandler, true))
+	testutil.Eventually(re, func() bool {
+		store, err := cli.GetStore(suite.ctx, store1)
+		if err != nil {
+			return false
+		}
+		re.Equal(store1, store.GetId())
+		return true
+	}, testutil.WithWaitFor(1*time.Minute))
 }
 
 func (suite *serverTestSuite) TestRegionAPI() {
