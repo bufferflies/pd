@@ -41,7 +41,7 @@ type RegionLabeler struct {
 }
 
 // NewRegionLabeler creates a Labeler instance.
-func NewRegionLabeler(ctx context.Context, storage endpoint.RuleStorage, gcInterval time.Duration) (*RegionLabeler, error) {
+func NewRegionLabeler(ctx context.Context, storage endpoint.RuleStorage, gcInterval time.Duration, asyncLoad ...bool) (*RegionLabeler, error) {
 	l := &RegionLabeler{
 		storage:    storage,
 		labelRules: make(map[string]*LabelRule),
@@ -49,10 +49,19 @@ func NewRegionLabeler(ctx context.Context, storage endpoint.RuleStorage, gcInter
 		minExpire:  nil,
 	}
 
-	if err := l.loadRules(); err != nil {
-		return nil, err
+	if len(asyncLoad) > 0 && asyncLoad[0] {
+		go func() {
+			if err := l.loadRules(); err != nil {
+				log.Error("load rules failed", zap.Error(err))
+			}
+			go l.doGC(gcInterval)
+		}()
+	} else {
+		if err := l.loadRules(); err != nil {
+			return nil, err
+		}
+		go l.doGC(gcInterval)
 	}
-	go l.doGC(gcInterval)
 	return l, nil
 }
 

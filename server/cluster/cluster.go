@@ -322,7 +322,7 @@ func (c *RaftCluster) InitCluster(
 func (c *RaftCluster) Start(s Server, bootstrap bool) (err error) {
 	c.Lock()
 	defer c.Unlock()
-
+	start := time.Now()
 	if c.running {
 		log.Warn("raft cluster has already been started")
 		return nil
@@ -363,7 +363,7 @@ func (c *RaftCluster) Start(s Server, bootstrap bool) (err error) {
 		return nil
 	}
 
-	c.regionLabeler, err = labeler.NewRegionLabeler(c.ctx, c.storage, regionLabelGCInterval)
+	c.regionLabeler, err = labeler.NewRegionLabeler(c.ctx, c.storage, regionLabelGCInterval, c.isAPIServiceMode)
 	if err != nil {
 		return err
 	}
@@ -408,22 +408,17 @@ func (c *RaftCluster) Start(s Server, bootstrap bool) (err error) {
 	c.heartbeatRunner.Start(c.ctx)
 	c.miscRunner.Start(c.ctx)
 	c.logRunner.Start(c.ctx)
+	log.Info("raft cluster starts successfully", zap.Duration("cost", time.Since(start)))
 	return nil
 }
 
 func (c *RaftCluster) checkSchedulingService() {
 	if c.isAPIServiceMode {
-		servers, err := discovery.Discover(c.etcdClient, constant.SchedulingServiceName)
-		if c.opt.GetMicroServiceConfig().IsSchedulingFallbackEnabled() && (err != nil || len(servers) == 0) {
-			c.startSchedulingJobs(c, c.hbstreams)
-			c.UnsetServiceIndependent(constant.SchedulingServiceName)
-		} else {
-			if c.stopSchedulingJobs() || c.coordinator == nil {
-				c.initCoordinator(c.ctx, c, c.hbstreams)
-			}
-			if !c.IsServiceIndependent(constant.SchedulingServiceName) {
-				c.SetServiceIndependent(constant.SchedulingServiceName)
-			}
+		if c.stopSchedulingJobs() || c.coordinator == nil {
+			c.initCoordinator(c.ctx, c, c.hbstreams)
+		}
+		if !c.IsServiceIndependent(constant.SchedulingServiceName) {
+			c.SetServiceIndependent(constant.SchedulingServiceName)
 		}
 	} else {
 		c.startSchedulingJobs(c, c.hbstreams)
