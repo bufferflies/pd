@@ -17,6 +17,7 @@ package labeler
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/pingcap/log"
@@ -38,6 +39,7 @@ type RegionLabeler struct {
 	rangeList  rangelist.List // sorted LabelRules of the type `KeyRange`
 	ctx        context.Context
 	minExpire  *time.Time
+	isReady    atomic.Bool
 }
 
 // NewRegionLabeler creates a Labeler instance.
@@ -55,14 +57,21 @@ func NewRegionLabeler(ctx context.Context, storage endpoint.RuleStorage, gcInter
 				log.Error("load rules failed", zap.Error(err))
 			}
 			go l.doGC(gcInterval)
+			l.isReady.Store(true)
 		}()
 	} else {
 		if err := l.loadRules(); err != nil {
 			return nil, err
 		}
+		l.isReady.Store(true)
 		go l.doGC(gcInterval)
 	}
 	return l, nil
+}
+
+// IsReady returns whether the labeler has loaded all rules.
+func (l *RegionLabeler) IsReady() bool {
+	return l.isReady.Load()
 }
 
 func (l *RegionLabeler) doGC(gcInterval time.Duration) {
@@ -116,6 +125,7 @@ func (l *RegionLabeler) checkAndClearExpiredLabels() {
 
 func (l *RegionLabeler) loadRules() error {
 	var toDelete []string
+	start := time.Now()
 	err := l.storage.LoadRegionRules(func(k, v string) {
 		r, err := NewLabelRuleFromJSON([]byte(v))
 		if err != nil {
@@ -131,6 +141,7 @@ func (l *RegionLabeler) loadRules() error {
 		}
 		l.labelRules[r.ID] = r
 	})
+	log.Info("load all region rules from storage", zap.Float64("take", time.Since(start).Abs().Seconds()))
 	if err != nil {
 		return err
 	}
@@ -142,6 +153,7 @@ func (l *RegionLabeler) loadRules() error {
 		}
 	}
 	l.BuildRangeListLocked()
+	log.Info("load region rules finished", zap.Float64("take", time.Since(start).Abs().Seconds()))
 	return nil
 }
 
@@ -165,6 +177,9 @@ func (l *RegionLabeler) BuildRangeListLocked() {
 
 // GetSplitKeys returns all split keys in the range (start, end).
 func (l *RegionLabeler) GetSplitKeys(start, end []byte) [][]byte {
+	if !l.IsReady() {
+		return nil
+	}
 	l.RLock()
 	defer l.RUnlock()
 	return l.rangeList.GetSplitKeys(start, end)
@@ -172,6 +187,9 @@ func (l *RegionLabeler) GetSplitKeys(start, end []byte) [][]byte {
 
 // GetAllLabelRules returns all the rules.
 func (l *RegionLabeler) GetAllLabelRules() []*LabelRule {
+	if !l.IsReady() {
+		return nil
+	}
 	l.checkAndClearExpiredLabels()
 	l.RLock()
 	defer l.RUnlock()
@@ -184,6 +202,9 @@ func (l *RegionLabeler) GetAllLabelRules() []*LabelRule {
 
 // GetLabelRules returns the rules that match the given ids.
 func (l *RegionLabeler) GetLabelRules(ids []string) ([]*LabelRule, error) {
+	if !l.IsReady() {
+		return nil, errs.ErrRuleNotFound.FastGenByArgs("region labeler is not ready")
+	}
 	now := time.Now()
 	rules := make([]*LabelRule, 0, len(ids))
 	for _, id := range ids {
@@ -196,6 +217,9 @@ func (l *RegionLabeler) GetLabelRules(ids []string) ([]*LabelRule, error) {
 
 // GetLabelRule returns the Rule with the same ID.
 func (l *RegionLabeler) GetLabelRule(id string) *LabelRule {
+	if !l.IsReady() {
+		return nil
+	}
 	return l.getAndCheckRule(id, time.Now())
 }
 
@@ -221,6 +245,9 @@ func (l *RegionLabeler) getAndCheckRule(id string, now time.Time) *LabelRule {
 
 // SetLabelRule inserts or updates a LabelRule.
 func (l *RegionLabeler) SetLabelRule(rule *LabelRule) error {
+	if !l.IsReady() {
+		return errs.ErrRuleNotFound.FastGenByArgs("region labeler is not ready")
+	}
 	l.Lock()
 	defer l.Unlock()
 	if err := l.SetLabelRuleLocked(rule); err != nil {
@@ -232,6 +259,9 @@ func (l *RegionLabeler) SetLabelRule(rule *LabelRule) error {
 
 // SetLabelRuleLocked inserts or updates a LabelRule but not buildRangeList.
 func (l *RegionLabeler) SetLabelRuleLocked(rule *LabelRule) error {
+	if !l.IsReady() {
+		return errs.ErrRuleNotFound.FastGenByArgs("region labeler is not ready")
+	}
 	if err := rule.checkAndAdjust(); err != nil {
 		return err
 	}
@@ -245,6 +275,9 @@ func (l *RegionLabeler) SetLabelRuleLocked(rule *LabelRule) error {
 // SaveLabelRuleLocked inserts or updates a LabelRule but not buildRangeList.
 // It only saves the rule to storage, and does not update the in-memory states.
 func (l *RegionLabeler) SaveLabelRuleLocked(rule *LabelRule) error {
+	if !l.IsReady() {
+		return errs.ErrRuleNotFound.FastGenByArgs("region labeler is not ready")
+	}
 	return l.storage.RunInTxn(l.ctx, func(txn kv.Txn) error {
 		return l.storage.SaveRegionRule(txn, rule.ID, rule)
 	})
@@ -252,6 +285,9 @@ func (l *RegionLabeler) SaveLabelRuleLocked(rule *LabelRule) error {
 
 // DeleteLabelRule removes a LabelRule.
 func (l *RegionLabeler) DeleteLabelRule(id string) error {
+	if !l.IsReady() {
+		return errs.ErrRuleNotFound.FastGenByArgs("region labeler is not ready")
+	}
 	l.Lock()
 	defer l.Unlock()
 	if _, ok := l.labelRules[id]; !ok {
@@ -266,6 +302,9 @@ func (l *RegionLabeler) DeleteLabelRule(id string) error {
 
 // DeleteLabelRuleLocked removes a LabelRule but not buildRangeList.
 func (l *RegionLabeler) DeleteLabelRuleLocked(id string) error {
+	if !l.IsReady() {
+		return errs.ErrRuleNotFound.FastGenByArgs("region labeler is not ready")
+	}
 	if err := l.storage.RunInTxn(l.ctx, func(txn kv.Txn) error {
 		return l.storage.DeleteRegionRule(txn, id)
 	}); err != nil {
@@ -277,6 +316,9 @@ func (l *RegionLabeler) DeleteLabelRuleLocked(id string) error {
 
 // Patch updates multiple region rules in a batch.
 func (l *RegionLabeler) Patch(patch LabelRulePatch) error {
+	if !l.IsReady() {
+		return errs.ErrRuleNotFound.FastGenByArgs("region labeler is not ready")
+	}
 	// setRulesMap is used to solve duplicate entries in DeleteRules and SetRules.
 	// Note: We maintain compatibility with the previous behavior, which is to process DeleteRules before SetRules
 	// If there are duplicate rules, we will prioritize SetRules and select the last one from SetRules.
@@ -327,6 +369,9 @@ func (l *RegionLabeler) Patch(patch LabelRulePatch) error {
 // GetRegionLabel returns the label of the region for a key.
 // If there are multiple rules that match the key, the one with max rule index will be returned.
 func (l *RegionLabeler) GetRegionLabel(region *core.RegionInfo, key string) string {
+	if !l.IsReady() {
+		return ""
+	}
 	l.RLock()
 	defer l.RUnlock()
 	now := time.Now()
@@ -353,6 +398,9 @@ func (l *RegionLabeler) GetRegionLabel(region *core.RegionInfo, key string) stri
 
 // ScheduleDisabled returns true if the region is lablelld with schedule-disabled.
 func (l *RegionLabeler) ScheduleDisabled(region *core.RegionInfo) bool {
+	if !l.IsReady() {
+		return false
+	}
 	v := l.GetRegionLabel(region, scheduleOptionLabel)
 	return strings.EqualFold(v, scheduleOptionValueDeny)
 }
@@ -360,6 +408,9 @@ func (l *RegionLabeler) ScheduleDisabled(region *core.RegionInfo) bool {
 // GetRegionLabels returns the labels of the region.
 // For each key, the label with max rule index will be returned.
 func (l *RegionLabeler) GetRegionLabels(region *core.RegionInfo) []*RegionLabel {
+	if !l.IsReady() {
+		return nil
+	}
 	l.RLock()
 	defer l.RUnlock()
 	type valueIndex struct {
