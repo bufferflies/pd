@@ -152,7 +152,7 @@ func (l *RegionLabeler) loadRules() error {
 		}
 		l.labelRules[r.ID] = r
 	})
-	log.Info("load all region rules from storage", zap.Float64("take", time.Since(start).Abs().Seconds()))
+	log.Info("load all region rules from storage", zap.Float64("take", time.Since(start).Seconds()))
 	if err != nil {
 		return err
 	}
@@ -164,7 +164,7 @@ func (l *RegionLabeler) loadRules() error {
 		}
 	}
 	l.BuildRangeListLocked()
-	log.Info("load region rules finished", zap.Float64("take", time.Since(start).Abs().Seconds()))
+	log.Info("load region rules finished", zap.Float64("take", time.Since(start).Seconds()))
 	return nil
 }
 

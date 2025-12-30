@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/pingcap/failpoint"
 	"github.com/stretchr/testify/require"
+
 	"github.com/tikv/pd/client/testutil"
 	"github.com/tikv/pd/pkg/schedule/labeler"
 	"github.com/tikv/pd/server/apiv2/handlers"
+	"github.com/tikv/pd/server/config"
 	"github.com/tikv/pd/tests"
 )
 
@@ -54,7 +57,6 @@ func TestKeyspaceRegionLabeler(t *testing.T) {
 			rule = rules[0]
 			cluster.Destroy()
 		}
-		fmt.Printf("init rules: %+v\n", rules)
 	}
 	checkRuleFn(false)
 
@@ -118,7 +120,7 @@ func TestKeyspaceRegionLabeler(t *testing.T) {
 	}
 	checkRuleApi()
 
-	// create keyspace
+	// create keyspace fail
 	testConfig := map[string]string{
 		"config1": "100",
 		"config2": "200",
@@ -134,5 +136,74 @@ func TestKeyspaceRegionLabeler(t *testing.T) {
 	re.NoError(err)
 	re.Equal(http.StatusInternalServerError, resp.StatusCode)
 	re.NoError(resp.Body.Close())
+
+	label := pdLeader.GetRaftCluster().GetRegionLabeler()
+	labelRules := label.GetAllLabelRules()
+	re.Empty(labelRules)
+	cluster.Destroy()
+}
+
+func TestCreateWhenLeaderResign(t *testing.T) {
+	re := require.New(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	skipWait := func(conf *config.Config, serverName string) {
+		conf.Keyspace.WaitRegionSplit = false
+
+	}
+	cluster, err := tests.NewTestAPICluster(ctx, 1, skipWait)
+	re.NoError(err)
+	err = cluster.RunInitialServers()
+	re.NoError(err)
+	leaderName := cluster.WaitLeader()
+	re.NotEmpty(leaderName)
+	pdLeader := cluster.GetServer(leaderName)
+	re.NoError(pdLeader.BootstrapCluster())
+
+	testutil.Eventually(re, func() bool {
+		rc := pdLeader.GetRaftCluster()
+		if rc == nil {
+			return false
+		}
+		return true
+	})
+
+	successNames := make([]string, 0)
+	failedNames := make([]string, 0)
+	testConfig := map[string]string{
+		"config1": "100",
+		"config2": "200",
+	}
+	for id := 10; id < 20; id++ {
+		name := fmt.Sprintf("test_keyspace_%d", id)
+		createRequest := &handlers.CreateKeyspaceParams{
+			Name:   name,
+			Config: testConfig,
+		}
+
+		address := pdLeader.GetAddr()
+		data, _ := json.Marshal(createRequest)
+		resp, err := http.DefaultClient.Post(address+"/pd/api/v2/keyspaces", "application/json", bytes.NewBuffer(data))
+		if err != nil || resp.StatusCode != http.StatusOK {
+			failedNames = append(failedNames, name)
+		} else {
+			successNames = append(successNames, name)
+		}
+		time.Sleep(time.Second)
+		re.NoError(resp.Body.Close())
+		if id == 5 {
+			go func() {
+				re.NoError(cluster.ResignLeader())
+			}()
+		}
+	}
+	leaderName = cluster.WaitLeader()
+	re.NotEmpty(leaderName)
+	pdLeader = cluster.GetServer(leaderName)
+	labeler := pdLeader.GetRaftCluster().GetRegionLabeler()
+	rules := labeler.GetAllLabelRules()
+	// default keyspace + succeeded keyspaces
+	re.Len(rules, len(successNames)+1)
+	cluster.Destroy()
 	re.True(false)
 }
