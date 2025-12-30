@@ -67,7 +67,11 @@ func NewRegionLabeler(ctx context.Context, storage endpoint.RuleStorage, gcInter
 						log.Error("failed to parse duration", zap.String("duration", s), zap.Error(err))
 						return
 					}
-					time.Sleep(expected)
+					select {
+					case <-time.After(expected):
+					case <-ctx.Done():
+						return
+					}
 				}
 			})
 			if err := l.loadRules(); err != nil {
