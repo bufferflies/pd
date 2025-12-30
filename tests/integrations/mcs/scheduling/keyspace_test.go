@@ -1,3 +1,17 @@
+// Copyright 2025 TiKV Project Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package scheduling
 
 import (
@@ -60,9 +74,9 @@ func TestKeyspaceRegionLabeler(t *testing.T) {
 	}
 	checkRuleFn(false)
 
-	re.NoError(failpoint.Enable("github.com/tikv/pd/pkg/schedule/labeler/skipLoadRules", "return"))
+	re.NoError(failpoint.Enable("github.com/tikv/pd/pkg/schedule/labeler/pauseLoadRules", `return("10m")`))
 	defer func() {
-		re.NoError(failpoint.Disable("github.com/tikv/pd/pkg/schedule/labeler/skipLoadRules"))
+		re.NoError(failpoint.Disable("github.com/tikv/pd/pkg/schedule/labeler/pauseLoadRules"))
 	}()
 	checkRuleFn(true)
 
@@ -149,9 +163,12 @@ func TestCreateWhenLeaderResign(t *testing.T) {
 	defer cancel()
 	skipWait := func(conf *config.Config, serverName string) {
 		conf.Keyspace.WaitRegionSplit = false
-
 	}
-	cluster, err := tests.NewTestAPICluster(ctx, 1, skipWait)
+	cluster, err := tests.NewTestAPICluster(ctx, 3, skipWait)
+	re.NoError(failpoint.Enable("github.com/tikv/pd/pkg/schedule/labeler/pauseLoadRules", `return("2s")`))
+	defer func() {
+		re.NoError(failpoint.Disable("github.com/tikv/pd/pkg/schedule/labeler/pauseLoadRules"))
+	}()
 	re.NoError(err)
 	err = cluster.RunInitialServers()
 	re.NoError(err)
@@ -185,13 +202,14 @@ func TestCreateWhenLeaderResign(t *testing.T) {
 		data, _ := json.Marshal(createRequest)
 		resp, err := http.DefaultClient.Post(address+"/pd/api/v2/keyspaces", "application/json", bytes.NewBuffer(data))
 		if err != nil || resp.StatusCode != http.StatusOK {
+			fmt.Printf("create keyspace %s failed: %v, status code: %d\n", name, err, resp.StatusCode)
 			failedNames = append(failedNames, name)
 		} else {
 			successNames = append(successNames, name)
 		}
 		time.Sleep(time.Second)
 		re.NoError(resp.Body.Close())
-		if id == 5 {
+		if id == 15 {
 			go func() {
 				re.NoError(cluster.ResignLeader())
 			}()
@@ -202,8 +220,7 @@ func TestCreateWhenLeaderResign(t *testing.T) {
 	pdLeader = cluster.GetServer(leaderName)
 	labeler := pdLeader.GetRaftCluster().GetRegionLabeler()
 	rules := labeler.GetAllLabelRules()
-	// default keyspace + succeeded keyspaces
-	re.Len(rules, len(successNames)+1)
+	re.Len(rules, len(successNames))
+	re.NotEmpty(failedNames)
 	cluster.Destroy()
-	re.True(false)
 }

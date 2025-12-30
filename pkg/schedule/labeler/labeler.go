@@ -59,8 +59,16 @@ func NewRegionLabeler(ctx context.Context, storage endpoint.RuleStorage, gcInter
 
 	if len(asyncLoad) > 0 && asyncLoad[0] {
 		go func() {
-			failpoint.Inject("skipLoadRules", func() {
-				failpoint.Return()
+			failpoint.Inject("pauseLoadRules", func(val failpoint.Value) {
+				if s, ok := val.(string); ok {
+					log.Info("skip loading region labeler rules", zap.String("duration", s))
+					expected, err := time.ParseDuration(s)
+					if err != nil {
+						log.Error("failed to parse duration", zap.String("duration", s), zap.Error(err))
+						return
+					}
+					time.Sleep(expected)
+				}
 			})
 			if err := l.loadRules(); err != nil {
 				log.Error("load rules failed", zap.Error(err))
