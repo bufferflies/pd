@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pingcap/failpoint"
 	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/core"
 	"github.com/tikv/pd/pkg/errs"
@@ -43,7 +44,7 @@ type RegionLabeler struct {
 }
 
 // NewRegionLabeler creates a Labeler instance.
-func NewRegionLabeler(ctx context.Context, storage endpoint.RuleStorage, gcInterval time.Duration,asyncLoad ...bool) (*RegionLabeler, error) {
+func NewRegionLabeler(ctx context.Context, storage endpoint.RuleStorage, gcInterval time.Duration, asyncLoad ...bool) (*RegionLabeler, error) {
 	start := time.Now()
 	defer func() {
 		newRegionLabelerDuration.Observe(time.Since(start).Seconds())
@@ -58,6 +59,9 @@ func NewRegionLabeler(ctx context.Context, storage endpoint.RuleStorage, gcInter
 
 	if len(asyncLoad) > 0 && asyncLoad[0] {
 		go func() {
+			failpoint.Inject("skipLoadRules", func() {
+				failpoint.Return()
+			})
 			if err := l.loadRules(); err != nil {
 				log.Error("load rules failed", zap.Error(err))
 			}
@@ -406,7 +410,7 @@ func (l *RegionLabeler) GetRegionLabel(region *core.RegionInfo, key string) stri
 // ScheduleDisabled returns true if the region is lablelld with schedule-disabled.
 func (l *RegionLabeler) ScheduleDisabled(region *core.RegionInfo) bool {
 	if !l.IsReady() {
-		return false
+		return true
 	}
 	v := l.GetRegionLabel(region, scheduleOptionLabel)
 	return strings.EqualFold(v, scheduleOptionValueDeny)
