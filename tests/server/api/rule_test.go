@@ -77,6 +77,14 @@ func (suite *ruleTestSuite) TearDownTest() {
 	suite.env.RunTestBasedOnMode(cleanFunc)
 }
 
+func (suite *ruleTestSuite) TestRegionLabel() {
+	suite.env.RunTestBasedOnMode(suite.checkSet)
+}
+
+func (suite *ruleTestSuite) checkRegionLabeler(cluster *tests.TestCluster) {
+
+}
+
 func (suite *ruleTestSuite) TestSet() {
 	suite.env.RunTestBasedOnMode(suite.checkSet)
 }

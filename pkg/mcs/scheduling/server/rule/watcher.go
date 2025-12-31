@@ -210,10 +210,12 @@ func (rw *Watcher) initializeRuleWatcher() error {
 
 func (rw *Watcher) initializeRegionLabelWatcher() error {
 	prefixToTrim := rw.regionLabelPathPrefix + "/"
+	suspectKeyRanges := make([]*labeler.KeyRangeRule, 0)
 	// TODO: use txn in region labeler.
 	preEventsFn := func([]*clientv3.Event) error {
 		// It will be locked until the postEventsFn is finished.
 		rw.regionLabeler.Lock()
+		suspectKeyRanges = suspectKeyRanges[:0]
 		return nil
 	}
 	putFn := func(kv *mvccpb.KeyValue) error {
@@ -225,20 +227,31 @@ func (rw *Watcher) initializeRegionLabelWatcher() error {
 		err = rw.regionLabeler.SetLabelRuleLocked(rule)
 		if err == nil {
 			krs := rule.GetKeyRanges()
-			for _, kr := range krs {
-				rw.checkerController.AddSuspectKeyRange(kr.StartKey, kr.EndKey)
-			}
+			suspectKeyRanges = append(suspectKeyRanges, krs...)
 		}
 		return err
 	}
 	deleteFn := func(kv *mvccpb.KeyValue) error {
 		key := string(kv.Key)
 		log.Info("delete region label rule", zap.String("key", key))
-		return rw.regionLabeler.DeleteLabelRuleLocked(strings.TrimPrefix(key, prefixToTrim))
+		err := rw.regionLabeler.DeleteLabelRuleLocked(strings.TrimPrefix(key, prefixToTrim))
+		if err == nil {
+			rule, err := labeler.NewLabelRuleFromJSON(kv.Value)
+			if err != nil {
+				log.Warn("marshal label rule failed", zap.Error(err))
+			} else {
+				krs := rule.GetKeyRanges()
+				suspectKeyRanges = append(suspectKeyRanges, krs...)
+			}
+		}
+		return err
 	}
 	postEventsFn := func([]*clientv3.Event) error {
 		defer rw.regionLabeler.Unlock()
 		rw.regionLabeler.BuildRangeListLocked()
+		for _, kr := range suspectKeyRanges {
+			rw.checkerController.AddSuspectKeyRange(kr.StartKey, kr.EndKey)
+		}
 		return nil
 	}
 	rw.labelWatcher = etcdutil.NewLoopWatcher(
