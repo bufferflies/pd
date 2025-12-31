@@ -61,7 +61,7 @@ func (suite *keyspaceTestSuite) SetupSuite() {
 	re := suite.Require()
 	re.NoError(failpoint.Enable("github.com/tikv/pd/server/cluster/highFrequencyClusterJobs", `return(true)`))
 	var err error
-	skipWait := func(conf *config.Config, serverName string) {
+	skipWait := func(conf *config.Config, _ string) {
 		conf.Keyspace.WaitRegionSplit = false
 	}
 	suite.ctx, suite.cancel = context.WithCancel(context.Background())
@@ -78,7 +78,7 @@ func (suite *keyspaceTestSuite) SetupSuite() {
 		"config1": "100",
 		"config2": "200",
 	}
-	for id := 0; id < initKeyspaceNum; id++ {
+	for id := range initKeyspaceNum {
 		name := fmt.Sprintf("test_keyspace_%d", id)
 		createRequest := &handlers.CreateKeyspaceParams{
 			Name:   name,
@@ -242,7 +242,7 @@ func TestKeyspaceSchedulingExist(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	disableFallback := func(conf *config.Config, serverName string) {
+	disableFallback := func(conf *config.Config, _ string) {
 		conf.MicroService.EnableSchedulingFallback = false
 		conf.Keyspace.WaitRegionSplit = false
 	}
@@ -256,17 +256,13 @@ func TestKeyspaceSchedulingExist(t *testing.T) {
 	re.NoError(pdLeader.BootstrapCluster())
 
 	testutil.Eventually(re, func() bool {
-		rc := pdLeader.GetRaftCluster()
-		if rc == nil {
-			return false
-		}
-		return true
+		return pdLeader.GetRaftCluster() != nil
 	})
 	testConfig := map[string]string{
 		"config1": "100",
 		"config2": "200",
 	}
-	for id := 0; id < initKeyspaceNum; id++ {
+	for id := range initKeyspaceNum {
 		name := fmt.Sprintf("test_keyspace_%d", id)
 		createRequest := &handlers.CreateKeyspaceParams{
 			Name:   name,
