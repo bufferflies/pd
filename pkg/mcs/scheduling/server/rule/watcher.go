@@ -222,7 +222,14 @@ func (rw *Watcher) initializeRegionLabelWatcher() error {
 		if err != nil {
 			return err
 		}
-		return rw.regionLabeler.SetLabelRuleLocked(rule)
+		err = rw.regionLabeler.SetLabelRuleLocked(rule)
+		if err == nil {
+			krs := rule.GetKeyRanges()
+			for _, kr := range krs {
+				rw.checkerController.AddSuspectKeyRange(kr.StartKey, kr.EndKey)
+			}
+		}
+		return err
 	}
 	deleteFn := func(kv *mvccpb.KeyValue) error {
 		key := string(kv.Key)
