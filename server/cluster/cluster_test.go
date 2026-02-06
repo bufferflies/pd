@@ -693,19 +693,29 @@ func TestStaleBucketMeta(t *testing.T) {
 	cluster.coordinator = schedule.NewCoordinator(ctx, cluster, nil)
 
 	region := core.NewTestRegionInfo(1, 1, []byte{'a'}, []byte{'d'})
-	buckets := &metapb.Buckets{
+	bucket1 := &metapb.Buckets{
 		RegionId: 1,
 		Version:  2,
 		Keys:     [][]byte{{'a'}, {'d'}},
 	}
-	re.True(region.UpdateBuckets(buckets, nil))
+	re.True(region.UpdateBuckets(bucket1, nil))
 	re.NoError(cluster.processRegionHeartbeat(core.ContextTODO(), region))
-	re.Equal(buckets, cluster.GetRegion(1).GetBuckets())
+	re.Equal(bucket1, cluster.GetRegion(1).GetBuckets())
 
 	// region split
 	newRegion := region.Clone(core.WithIncVersion(), core.WithStartKey([]byte{'c'}), core.WithEndKey([]byte{'d'}))
 	re.NoError(cluster.processRegionHeartbeat(core.ContextTODO(), newRegion))
-	re.Equal(buckets, cluster.GetRegion(1).GetBuckets())
+	re.Equal(bucket1, cluster.GetRegion(1).GetBuckets())
+
+	// region heartbeat with bucket meta
+	bucket2 := &metapb.BucketMeta{
+		Version: 3,
+		Keys:    [][]byte{{'c'}, {'d'}},
+	}
+	region2 := newRegion.Clone(core.WithIncVersion(), core.WithBucketMeta(bucket2))
+	re.NoError(cluster.processRegionHeartbeat(core.ContextTODO(), region2))
+	region1 := cluster.GetRegion(1)
+	re.NotEqual(bucket1, region1.GetBuckets())
 }
 
 func TestBucketHeartbeat(t *testing.T) {

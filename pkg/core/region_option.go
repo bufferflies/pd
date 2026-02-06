@@ -111,6 +111,12 @@ func WithStartKey(key []byte) RegionCreateOption {
 	}
 }
 
+func WithBucketMeta(bucketMeta *metapb.BucketMeta) RegionCreateOption {
+	return func(region *RegionInfo) {
+		region.bucketMeta = bucketMeta
+	}
+}
+
 // WithEndKey sets the end key for the region.
 func WithEndKey(key []byte) RegionCreateOption {
 	return func(region *RegionInfo) {
