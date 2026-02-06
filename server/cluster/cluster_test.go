@@ -682,6 +682,32 @@ func TestRegionHeartbeatHotStat(t *testing.T) {
 	re.Len(stats[4], 1)
 }
 
+func TestStaleBucketMeta(t *testing.T) {
+	re := require.New(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	_, opt, err := newTestScheduleConfig()
+	re.NoError(err)
+	cluster := newTestRaftCluster(ctx, mockid.NewIDAllocator(), opt, storage.NewStorageWithMemoryBackend())
+	cluster.coordinator = schedule.NewCoordinator(ctx, cluster, nil)
+
+	region := core.NewTestRegionInfo(1, 1, []byte{'a'}, []byte{'d'})
+	buckets := &metapb.Buckets{
+		RegionId: 1,
+		Version:  2,
+		Keys:     [][]byte{{'a'}, {'d'}},
+	}
+	re.True(region.UpdateBuckets(buckets, nil))
+	re.NoError(cluster.processRegionHeartbeat(core.ContextTODO(), region))
+	re.Equal(buckets, cluster.GetRegion(1).GetBuckets())
+
+	// region split
+	newRegion := region.Clone(core.WithIncVersion(), core.WithStartKey([]byte{'c'}), core.WithEndKey([]byte{'d'}))
+	re.NoError(cluster.processRegionHeartbeat(core.ContextTODO(), newRegion))
+	re.Equal(buckets, cluster.GetRegion(1).GetBuckets())
+}
+
 func TestBucketHeartbeat(t *testing.T) {
 	re := require.New(t)
 	ctx, cancel := context.WithCancel(context.Background())
