@@ -788,7 +788,6 @@ func postSchedulerConfigCommandFunc(cmd *cobra.Command, schedulerName string, ar
 			labels[labelKey] = labelValues
 			input[key] = labels
 		}
-
 	} else {
 		input[key] = val
 	}
