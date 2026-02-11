@@ -25,6 +25,8 @@ import (
 	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/errs"
 	sche "github.com/tikv/pd/pkg/schedule/core"
+	"github.com/tikv/pd/pkg/schedule/filter"
+	"github.com/tikv/pd/pkg/schedule/placement"
 	"github.com/tikv/pd/pkg/slice"
 	"github.com/tikv/pd/pkg/statistics"
 	"github.com/tikv/pd/pkg/statistics/utils"
@@ -79,6 +81,7 @@ func initHotRegionScheduleConfig() *hotRegionSchedulerConfig {
 			SplitThresholds:        0.2,
 			HistorySampleDuration:  typeutil.NewDuration(statistics.DefaultHistorySampleDuration),
 			HistorySampleInterval:  typeutil.NewDuration(statistics.DefaultHistorySampleInterval),
+			SkipReadStoreLabels:    make(map[string][]string, 0),
 		},
 	}
 	cfg.applyPrioritiesConfig(defaultPrioritiesConfig)
@@ -110,6 +113,7 @@ func (conf *hotRegionSchedulerConfig) getValidConf() *hotRegionSchedulerParam {
 		SplitThresholds:        conf.SplitThresholds,
 		HistorySampleDuration:  conf.HistorySampleDuration,
 		HistorySampleInterval:  conf.HistorySampleInterval,
+		SkipReadStoreLabels:    conf.SkipReadStoreLabels,
 	}
 }
 
@@ -152,6 +156,8 @@ type hotRegionSchedulerParam struct {
 
 	HistorySampleDuration typeutil.Duration `json:"history-sample-duration"`
 	HistorySampleInterval typeutil.Duration `json:"history-sample-interval"`
+
+	SkipReadStoreLabels map[string][]string `json:"skip-read-store-labels,omitempty"`
 }
 
 type hotRegionSchedulerConfig struct {
@@ -327,6 +333,21 @@ func (conf *hotRegionSchedulerConfig) getHistorySampleInterval() time.Duration {
 	conf.RLock()
 	defer conf.RUnlock()
 	return conf.HistorySampleInterval.Duration
+}
+
+func (conf *hotRegionSchedulerConfig) getReadStoreFilter(scope string) filter.Filter {
+	conf.RLock()
+	defer conf.RUnlock()
+	constraints := make([]placement.LabelConstraint, 0)
+	for key, labels := range conf.SkipReadStoreLabels {
+		constraints = append(constraints, placement.LabelConstraint{
+			Key:    key,
+			Op:     placement.NotIn,
+			Values: labels,
+		})
+	}
+
+	return filter.NewLabelConstraintFilter(scope, constraints)
 }
 
 // nolint: unused, unparam

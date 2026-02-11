@@ -109,13 +109,17 @@ func newBaseHotScheduler(
 
 // prepareForBalance calculate the summary of pending Influence for each store and prepare the load detail for
 // each store, only update read or write load detail
-func (s *baseHotScheduler) prepareForBalance(typ resourceType, cluster sche.SchedulerCluster) {
-	storeInfos := statistics.SummaryStoreInfos(cluster.GetStores())
-	s.summaryPendingInfluence(storeInfos)
+func (s *baseHotScheduler) prepareForBalance(typ resourceType, cluster sche.SchedulerCluster, filters ...filter.Filter) {
 	storesLoads := cluster.GetStoresLoads()
 	isTraceRegionFlow := cluster.GetSchedulerConfig().IsTraceRegionFlow()
 
 	prepare := func(regionStats map[uint64][]*statistics.HotPeerStat, rw utils.RWType, resource constant.ResourceKind) {
+		stores := cluster.GetStores()
+		if rw == utils.Read {
+			stores = filter.SelectSourceStores(stores, filters, cluster.GetSharedConfig(), nil, nil)
+		}
+		storeInfos := statistics.SummaryStoreInfos(stores)
+		s.summaryPendingInfluence(storeInfos)
 		ty := buildResourceType(rw, resource)
 		s.stLoadInfos[ty] = statistics.SummaryStoresLoad(
 			storeInfos,
@@ -250,6 +254,7 @@ func (s *hotScheduler) ReloadConfig() error {
 	s.conf.SplitThresholds = newCfg.SplitThresholds
 	s.conf.HistorySampleDuration = newCfg.HistorySampleDuration
 	s.conf.HistorySampleInterval = newCfg.HistorySampleInterval
+	s.conf.SkipReadStoreLabels = newCfg.SkipReadStoreLabels
 	return nil
 }
 
@@ -288,7 +293,7 @@ func (s *hotScheduler) dispatch(typ resourceType, cluster sche.SchedulerCluster)
 	s.Lock()
 	defer s.Unlock()
 	s.updateHistoryLoadConfig(s.conf.getHistorySampleDuration(), s.conf.getHistorySampleInterval())
-	s.prepareForBalance(typ, cluster)
+	s.prepareForBalance(typ, cluster, s.conf.getReadStoreFilter(s.GetName()))
 	// isForbidRWType can not be move earlier to support to use api and metrics.
 	switch typ {
 	case readLeader, readPeer:

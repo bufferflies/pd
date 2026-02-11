@@ -778,8 +778,17 @@ func postSchedulerConfigCommandFunc(cmd *cobra.Command, schedulerName string, ar
 	if err != nil {
 		val = value
 	}
-	if schedulerName == "balance-hot-region-scheduler" && (key == "read-priorities" || key == "write-leader-priorities" || key == "write-peer-priorities") {
-		input[key] = strings.Split(value, ",")
+	if schedulerName == "balance-hot-region-scheduler" && (key == "read-priorities" || key == "write-leader-priorities" || key == "write-peer-priorities" || key == "skip-read-store-labels") {
+		if key != "skip-read-store-labels" {
+			input[key] = strings.Split(value, ",")
+		} else {
+			labels := make(map[string][]string, 1)
+			labelKey := strings.Split(value, ":")[0]
+			labelValues := strings.Split(strings.Split(value, ":")[1], ",")
+			labels[labelKey] = labelValues
+			input[key] = labels
+		}
+
 	} else {
 		input[key] = val
 	}

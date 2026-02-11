@@ -735,6 +735,21 @@ func (suite *schedulerTestSuite) checkHotRegionSchedulerConfig(cluster *pdTests.
 		testutil.Eventually(re, func() bool {
 			var conf1 map[string]any
 			mustExec(re, cmd, []string{"-u", pdAddr, "scheduler", "config", "balance-hot-region-scheduler"}, &conf1)
+			if _, ok := expect["skip-read-store-labels"]; ok {
+				if conf1["skip-read-store-labels"] == nil {
+					return false
+				}
+				data := make(map[string][]string, 0)
+				labels := conf1["skip-read-store-labels"].(map[string]any)
+				for k, arr := range labels {
+					vals := make([]string, 0)
+					for _, v := range arr.([]any) {
+						vals = append(vals, v.(string))
+					}
+					data[k] = vals
+				}
+				conf1["skip-read-store-labels"] = data
+			}
 			return reflect.DeepEqual(expect, conf1)
 		})
 	}
@@ -836,6 +851,13 @@ func (suite *schedulerTestSuite) checkHotRegionSchedulerConfig(cluster *pdTests.
 	// cannot set qps as write-peer-priorities
 	echo = mustExec(re, cmd, []string{"-u", pdAddr, "scheduler", "config", "balance-hot-region-scheduler", "set", "write-peer-priorities", "query,byte"}, nil)
 	re.Contains(echo, "query is not allowed to be set in priorities for write-peer-priorities")
+	checkHotSchedulerConfig(expected1)
+
+	expected1["skip-read-store-labels"] = map[string][]string{
+		"zone": {"standby", "witness"},
+	}
+	echo = mustExec(re, cmd, []string{"-u", pdAddr, "scheduler", "config", "balance-hot-region-scheduler", "set", "skip-read-store-labels", "zone:standby,witness"}, nil)
+	re.Contains(echo, "Success!")
 	checkHotSchedulerConfig(expected1)
 }
 

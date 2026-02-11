@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tikv/pd/pkg/core"
 	"github.com/tikv/pd/pkg/mock/mockcluster"
+	"github.com/tikv/pd/pkg/schedule/filter"
 	"github.com/tikv/pd/pkg/schedule/operator"
 	"github.com/tikv/pd/pkg/schedule/placement"
 	"github.com/tikv/pd/pkg/schedule/types"
@@ -274,6 +275,42 @@ func TestSplitIfRegionTooHot(t *testing.T) {
 
 	ops, _ = hb.Schedule(tc, false)
 	re.Empty(ops)
+}
+
+func TestPrepareForBalanceReadFiltersSourceStores(t *testing.T) {
+	re := require.New(t)
+	cancel, _, tc, oc := prepareSchedulersTest()
+	defer cancel()
+
+	sche, err := CreateScheduler(types.BalanceHotRegionScheduler, oc, storage.NewStorageWithMemoryBackend(), ConfigJSONDecoder([]byte("null")))
+	re.NoError(err)
+	hb := sche.(*hotScheduler)
+	hb.conf.SkipReadStoreLabels = map[string][]string{
+		"zone": {"standby"},
+	}
+	labels := []string{
+		"zone", "standby",
+	}
+	tc.PutStoreWithLabels(1, labels...)
+	tc.PutStoreWithLabels(2, labels...)
+	tc.UpdateStorageReadStats(1, 10*units.MiB, 10*units.MiB)
+	tc.UpdateStorageReadStats(2, 10*units.MiB, 10*units.MiB)
+	tc.UpdateStorageWrittenStats(1, 10*units.MiB, 10*units.MiB)
+	tc.UpdateStorageWrittenStats(2, 10*units.MiB, 10*units.MiB)
+
+	hb.prepareForBalance(readLeader, tc)
+	re.NotNil(hb.stLoadInfos[readLeader][2])
+	re.NotNil(hb.stLoadInfos[readLeader][1])
+	filters := []filter.Filter{
+		hb.conf.getReadStoreFilter(hb.GetName()),
+	}
+	hb.prepareForBalance(readLeader, tc, filters...)
+	re.Nil(hb.stLoadInfos[readLeader][2])
+	re.Nil(hb.stLoadInfos[readLeader][1])
+
+	hb.prepareForBalance(writeLeader, tc, filters...)
+	re.NotNil(hb.stLoadInfos[writeLeader][1])
+	re.NotNil(hb.stLoadInfos[writeLeader][2])
 }
 
 func TestSplitBucketsBySize(t *testing.T) {
