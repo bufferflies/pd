@@ -686,7 +686,14 @@ func (m *Manager) backgroundMetricsFlush(ctx context.Context, pushMetricsAddr st
 					sqlLayerRuMetrics.Add(consumption.SqlLayerCpuTimeMs * m.controllerConfig.RequestUnit.CPUMsCost)
 					sqlCPUMetrics.Add(consumption.SqlLayerCpuTimeMs)
 				}
-				kvCPUMetrics.Add(consumption.TotalCpuTimeMs - consumption.SqlLayerCpuTimeMs)
+				if kvCPU := consumption.TotalCpuTimeMs - consumption.SqlLayerCpuTimeMs; kvCPU >= 0 {
+					kvCPUMetrics.Add(kvCPU)
+				} else {
+					log.Error("unexpected kvCPU",
+						zap.String("groupName", name),
+						zap.Float64("totalCpuTimeMs", consumption.TotalCpuTimeMs),
+						zap.Float64("sqlLayerCpuTimeMs", consumption.SqlLayerCpuTimeMs))
+				}
 			}
 			// RPC count info.
 			if consumption.KvReadRpcCount > 0 {
@@ -720,6 +727,7 @@ func (m *Manager) backgroundMetricsFlush(ctx context.Context, pushMetricsAddr st
 				resourceGroupConfigGauge.DeletePartialMatch(prometheus.Labels{newResourceGroupNameLabel: r.name})
 				requestUnitSumPerSec.DeleteLabelValues(r.name)
 				requestUnitConsumeRate.DeleteLabelValues(r.name)
+				resourceUnitServiceLimit.DeleteLabelValues(r.name, r.name)
 			}
 
 		case <-availableRUTicker.C:
@@ -758,6 +766,7 @@ func (m *Manager) backgroundMetricsFlush(ctx context.Context, pushMetricsAddr st
 			m.RUnlock()
 			for i, name := range names {
 				rcuTrackers[name].FlushMetrics(rcuLimit[i], cpuMsCost)
+				resourceUnitServiceLimit.WithLabelValues(name, name).Set(rcuLimit[i])
 			}
 
 		case <-pushMetricsTickerC:
