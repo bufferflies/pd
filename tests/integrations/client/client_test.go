@@ -439,6 +439,37 @@ func TestTSOFollowerProxy(t *testing.T) {
 	wg.Wait()
 }
 
+func TestTSOFollowerProxyWithTSOService2(t *testing.T) {
+	re := require.New(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cluster, err := tests.NewTestAPICluster(ctx, 1)
+	re.NoError(err)
+	defer cluster.Destroy()
+	err = cluster.RunInitialServers()
+	re.NoError(err)
+	leaderName := cluster.WaitLeader()
+	pdLeaderServer := cluster.GetServer(leaderName)
+	re.NoError(pdLeaderServer.BootstrapCluster())
+	backendEndpoints := pdLeaderServer.GetAddr()
+	tsoCluster, err := tests.NewTestTSOCluster(ctx, 2, backendEndpoints)
+	re.NoError(err)
+	defer tsoCluster.Destroy()
+	cli := mcs.SetupClientWithKeyspaceID(ctx, re, constant.DefaultKeyspaceID, strings.Split(backendEndpoints, ","))
+	re.NotNil(cli)
+	defer cli.Close()
+	waitList := make([]pd.TSFuture, 0, 1000)
+	for range 1000 {
+		waitList = append(waitList, cli.GetTSAsync(ctx))
+	}
+
+	for _, ts := range waitList {
+		_, logic, err := ts.Wait()
+		re.Equal(int64(3), logic%4)
+		re.NoError(err)
+	}
+}
+
 func TestTSOFollowerProxyWithTSOService(t *testing.T) {
 	re := require.New(t)
 	ctx, cancel := context.WithCancel(context.Background())

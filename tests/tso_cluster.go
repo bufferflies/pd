@@ -111,6 +111,7 @@ func (tc *TestTSOCluster) AddServer(addr string) error {
 	cfg.BackendEndpoints = tc.backendEndpoints
 	cfg.ListenAddr = addr
 	cfg.Name = cfg.ListenAddr
+
 	generatedCfg, err := tso.GenerateConfig(cfg)
 	if err != nil {
 		return err
@@ -119,6 +120,8 @@ func (tc *TestTSOCluster) AddServer(addr string) error {
 	if err != nil {
 		return err
 	}
+	generatedCfg.TSOMaxIndex = 4
+	generatedCfg.TSOUniqueIndex = 3
 	server, cleanup, err := NewTSOTestServer(tc.ctx, generatedCfg)
 	if err != nil {
 		return err
