@@ -312,7 +312,7 @@ func (r *routerServiceDiscovery) nodeHealthCheckLoop() {
 func (r *routerServiceDiscovery) checkNodeHealth() {
 	r.nodes.Range(func(_, value any) bool {
 		// To ensure that the leader's healthy check is not delayed, shorten the duration.
-		ctx, cancel := context.WithTimeout(r.ctx, MemberHealthCheckInterval/3)
+		ctx, cancel := context.WithTimeout(r.ctx, r.option.Timeout)
 		defer cancel()
 		serviceClient := value.(*serviceClient)
 		serviceClient.checkNetworkAvailable(ctx)

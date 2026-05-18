@@ -626,7 +626,7 @@ func (c *serviceDiscovery) checkLeaderHealth(ctx context.Context) {
 func (c *serviceDiscovery) checkFollowerHealth(ctx context.Context) {
 	c.followers.Range(func(_, value any) bool {
 		// To ensure that the leader's healthy check is not delayed, shorten the duration.
-		ctx, cancel := context.WithTimeout(ctx, MemberHealthCheckInterval/3)
+		ctx, cancel := context.WithTimeout(ctx, c.option.Timeout)
 		defer cancel()
 		serviceClient := value.(*serviceClient)
 		serviceClient.checkNetworkAvailable(ctx)
@@ -883,7 +883,7 @@ func (c *serviceDiscovery) checkServiceModeChanged() error {
 
 func (c *serviceDiscovery) updateMember() error {
 	for _, url := range c.GetServiceURLs() {
-		members, err := c.getMembers(c.ctx, url, UpdateMemberTimeout)
+		members, err := c.getMembers(c.ctx, url, c.option.Timeout)
 		// Check the cluster ID.
 		updatedClusterID := members.GetHeader().GetClusterId()
 		if err == nil && updatedClusterID != c.clusterID {
@@ -915,17 +915,17 @@ func (c *serviceDiscovery) updateMember() error {
 }
 
 func (c *serviceDiscovery) getClusterInfo(ctx context.Context, url string, timeout time.Duration) (*pdpb.GetClusterInfoResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 	cc, err := c.GetOrCreateGRPCConn(url)
 	if err != nil {
 		return nil, err
 	}
 	start := time.Now()
 	defer func() { metrics.InternalCmdDurationGetClusterInfo.Observe(time.Since(start).Seconds()) }()
-	key := "GetClusterInfo-" + url
+	key := "GetClusterInfo-" + url + timeout.String()
 	r := c.flight.DoChan(key, func() (any, error) {
-		return pdpb.NewPDClient(cc).GetClusterInfo(ctx, &pdpb.GetClusterInfoRequest{})
+		cctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		return pdpb.NewPDClient(cc).GetClusterInfo(cctx, &pdpb.GetClusterInfoRequest{})
 	})
 	select {
 	case res := <-r:
@@ -951,17 +951,17 @@ func (c *serviceDiscovery) getClusterInfo(ctx context.Context, url string, timeo
 }
 
 func (c *serviceDiscovery) getMembers(ctx context.Context, url string, timeout time.Duration) (*pdpb.GetMembersResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 	cc, err := c.GetOrCreateGRPCConn(url)
 	if err != nil {
 		return nil, err
 	}
 	start := time.Now()
 	defer func() { metrics.InternalCmdDurationGetMembers.Observe(time.Since(start).Seconds()) }()
-	key := "GetMembers-" + url
+	key := "GetMembers-" + url + timeout.String()
 	r := c.flight.DoChan(key, func() (any, error) {
-		return pdpb.NewPDClient(cc).GetMembers(ctx, &pdpb.GetMembersRequest{})
+		cctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		return pdpb.NewPDClient(cc).GetMembers(cctx, &pdpb.GetMembersRequest{})
 	})
 	select {
 	case res := <-r:
