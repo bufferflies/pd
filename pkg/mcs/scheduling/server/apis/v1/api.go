@@ -29,6 +29,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
+
+	"github.com/tikv/pd/pkg/core"
 	"github.com/tikv/pd/pkg/errs"
 	scheserver "github.com/tikv/pd/pkg/mcs/scheduling/server"
 	mcsutils "github.com/tikv/pd/pkg/mcs/utils"
@@ -1406,6 +1408,15 @@ func checkRegionsReplicated(c *gin.Context) {
 	c.IndentedJSON(http.StatusOK, state)
 }
 
+func getBasicCluster(c *gin.Context, svr *scheserver.Server) (*core.BasicCluster, bool) {
+	basicCluster := svr.GetBasicCluster()
+	if basicCluster == nil {
+		c.String(http.StatusInternalServerError, "not bootstrapped")
+		return nil, false
+	}
+	return basicCluster, true
+}
+
 // @Tags        store
 // @Summary     Get a store's information.
 // @Param       id path integer true "Store Id"
@@ -1417,13 +1428,17 @@ func checkRegionsReplicated(c *gin.Context) {
 // @Router      /stores/{id} [get]
 func getStoreByID(c *gin.Context) {
 	svr := c.MustGet(multiservicesapi.ServiceContextKey).(*scheserver.Server)
+	basicCluster, ok := getBasicCluster(c, svr)
+	if !ok {
+		return
+	}
 	idStr := c.Param("id")
 	storeID, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		c.String(http.StatusBadRequest, err.Error())
 		return
 	}
-	store := svr.GetBasicCluster().GetStore(storeID)
+	store := basicCluster.GetStore(storeID)
 	if store == nil {
 		c.String(http.StatusNotFound, errs.ErrStoreNotFound.FastGenByArgs(storeID).Error())
 		return
@@ -1441,14 +1456,18 @@ func getStoreByID(c *gin.Context) {
 // @Router      /stores [get]
 func getAllStores(c *gin.Context) {
 	svr := c.MustGet(multiservicesapi.ServiceContextKey).(*scheserver.Server)
-	stores := svr.GetBasicCluster().GetMetaStores()
+	basicCluster, ok := getBasicCluster(c, svr)
+	if !ok {
+		return
+	}
+	stores := basicCluster.GetMetaStores()
 	StoresInfo := &response.StoresInfo{
 		Stores: make([]*response.StoreInfo, 0, len(stores)),
 	}
 
 	for _, s := range stores {
 		storeID := s.GetId()
-		store := svr.GetBasicCluster().GetStore(storeID)
+		store := basicCluster.GetStore(storeID)
 		if store == nil {
 			c.String(http.StatusInternalServerError, errs.ErrStoreNotFound.FastGenByArgs(storeID).Error())
 			return
@@ -1470,7 +1489,11 @@ func getAllStores(c *gin.Context) {
 // @Router   /regions [get]
 func getAllRegions(c *gin.Context) {
 	svr := c.MustGet(multiservicesapi.ServiceContextKey).(*scheserver.Server)
-	regions := svr.GetBasicCluster().GetRegions()
+	basicCluster, ok := getBasicCluster(c, svr)
+	if !ok {
+		return
+	}
+	regions := basicCluster.GetRegions()
 	b, err := response.MarshalRegionsInfoJSON(c.Request.Context(), regions)
 	if err != nil {
 		c.String(http.StatusInternalServerError, err.Error())
@@ -1486,7 +1509,11 @@ func getAllRegions(c *gin.Context) {
 // @Router   /regions/count [get]
 func getRegionCount(c *gin.Context) {
 	svr := c.MustGet(multiservicesapi.ServiceContextKey).(*scheserver.Server)
-	count := svr.GetBasicCluster().GetTotalRegionCount()
+	basicCluster, ok := getBasicCluster(c, svr)
+	if !ok {
+		return
+	}
+	count := basicCluster.GetTotalRegionCount()
 	c.IndentedJSON(http.StatusOK, &response.RegionsInfo{Count: count})
 }
 
@@ -1499,13 +1526,21 @@ func getRegionCount(c *gin.Context) {
 // @Router   /regions/{id} [get]
 func getRegionByID(c *gin.Context) {
 	svr := c.MustGet(multiservicesapi.ServiceContextKey).(*scheserver.Server)
+	basicCluster, ok := getBasicCluster(c, svr)
+	if !ok {
+		return
+	}
 	idStr := c.Param("id")
 	regionID, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		c.String(http.StatusBadRequest, err.Error())
 		return
 	}
-	regionInfo := svr.GetBasicCluster().GetRegion(regionID)
+	if regionID == 0 {
+		c.String(http.StatusBadRequest, errs.ErrRegionInvalidID.FastGenByArgs().Error())
+		return
+	}
+	regionInfo := basicCluster.GetRegion(regionID)
 	if regionInfo == nil {
 		c.String(http.StatusNotFound, errs.ErrRegionNotFound.FastGenByArgs(regionID).Error())
 		return

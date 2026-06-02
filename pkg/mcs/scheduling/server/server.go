@@ -218,7 +218,8 @@ func (s *Server) updateAPIServerMemberLoop() {
 					// double check
 					break
 				}
-				if s.cluster.SwitchAPIServerLeader(pdpb.NewPDClient(cc)) {
+				cluster := s.GetCluster()
+				if cluster != nil && cluster.SwitchAPIServerLeader(pdpb.NewPDClient(cc)) {
 					if status.Leader != curLeader {
 						log.Info("switch leader", zap.String("leader-id", fmt.Sprintf("%x", ep.ID)), zap.String("endpoint", ep.ClientURLs[0]))
 					}
@@ -488,6 +489,13 @@ func (s *Server) startServer() (err error) {
 func (s *Server) startCluster(context.Context) error {
 	s.basicCluster = core.NewBasicCluster()
 	s.storage = endpoint.NewStorageEndpoint(kv.NewMemoryKV(), nil)
+	var initSucceeded bool
+	defer func() {
+		if !initSucceeded {
+			s.stopCluster()
+		}
+	}()
+
 	err := s.startMetaConfWatcher()
 	if err != nil {
 		return err
@@ -504,13 +512,35 @@ func (s *Server) startCluster(context.Context) error {
 	if err != nil {
 		return err
 	}
+	s.cluster.SetRuntimeResources(s.metaWatcher, s.configWatcher, s.ruleWatcher)
 	s.cluster.StartBackgroundJobs()
+	initSucceeded = true
 	return nil
 }
 
 func (s *Server) stopCluster() {
-	s.cluster.StopBackgroundJobs()
+	if s.cluster != nil {
+		runtimeResourcesInstalled := s.cluster.GetMetaWatcher() != nil
+		s.cluster.StopBackgroundJobs()
+		s.cluster.cleanupRuntimeResources()
+		s.cluster = nil
+		s.hbStreams = nil
+		if runtimeResourcesInstalled {
+			s.ruleWatcher = nil
+			s.configWatcher = nil
+			s.metaWatcher = nil
+		}
+	}
 	s.stopWatcher()
+	if s.hbStreams != nil {
+		s.hbStreams.Close()
+		s.hbStreams = nil
+	}
+	if s.storage != nil {
+		s.storage.Close()
+		s.storage = nil
+	}
+	s.basicCluster = nil
 }
 
 func (s *Server) startMetaConfWatcher() (err error) {
@@ -520,6 +550,8 @@ func (s *Server) startMetaConfWatcher() (err error) {
 	}
 	s.configWatcher, err = config.NewWatcher(s.Context(), s.GetClient(), s.persistConfig, s.storage)
 	if err != nil {
+		s.metaWatcher.Close()
+		s.metaWatcher = nil
 		return err
 	}
 	return err
@@ -532,9 +564,18 @@ func (s *Server) startRuleWatcher() (err error) {
 }
 
 func (s *Server) stopWatcher() {
-	s.ruleWatcher.Close()
-	s.configWatcher.Close()
-	s.metaWatcher.Close()
+	if s.ruleWatcher != nil {
+		s.ruleWatcher.Close()
+		s.ruleWatcher = nil
+	}
+	if s.configWatcher != nil {
+		s.configWatcher.Close()
+		s.configWatcher = nil
+	}
+	if s.metaWatcher != nil {
+		s.metaWatcher.Close()
+		s.metaWatcher = nil
+	}
 }
 
 // GetPersistConfig returns the persist config.

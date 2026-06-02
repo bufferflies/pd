@@ -17,6 +17,8 @@ import (
 	"github.com/tikv/pd/pkg/core"
 	"github.com/tikv/pd/pkg/errs"
 	"github.com/tikv/pd/pkg/mcs/scheduling/server/config"
+	"github.com/tikv/pd/pkg/mcs/scheduling/server/meta"
+	"github.com/tikv/pd/pkg/mcs/scheduling/server/rule"
 	"github.com/tikv/pd/pkg/ratelimit"
 	"github.com/tikv/pd/pkg/schedule"
 	sc "github.com/tikv/pd/pkg/schedule/config"
@@ -44,13 +46,20 @@ type Cluster struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 	*core.BasicCluster
-	persistConfig     *config.PersistConfig
-	ruleManager       *placement.RuleManager
-	labelerManager    *labeler.RegionLabeler
-	regionStats       *statistics.RegionStatistics
-	labelStats        *statistics.LabelStatistics
-	hotStat           *statistics.HotStat
+	persistConfig  *config.PersistConfig
+	ruleManager    *placement.RuleManager
+	labelerManager *labeler.RegionLabeler
+	regionStats    *statistics.RegionStatistics
+	labelStats     *statistics.LabelStatistics
+	hotStat        *statistics.HotStat
+	// runtimeMu protects the runtime resources which are created after the cluster is created,
+	// and cleaned up before the cluster is closed.
+	runtimeMu         sync.RWMutex
 	storage           storage.Storage
+	hbStreams         *hbstream.HeartbeatStreams
+	metaWatcher       *meta.Watcher
+	configWatcher     *config.Watcher
+	ruleWatcher       *rule.Watcher
 	coordinator       *schedule.Coordinator
 	checkMembershipCh chan struct{}
 	apiServerLeader   atomic.Value
@@ -104,6 +113,7 @@ func NewCluster(
 		labelStats:        statistics.NewLabelStatistics(),
 		regionStats:       statistics.NewRegionStatistics(basicCluster, persistConfig, ruleManager),
 		storage:           storage,
+		hbStreams:         hbStreams,
 		checkMembershipCh: checkMembershipCh,
 
 		heartbeatRunner: ratelimit.NewConcurrentRunner(heartbeatTaskRunner, ratelimit.NewConcurrencyLimiter(uint64(runtime.NumCPU()*2)), time.Minute),
@@ -211,7 +221,76 @@ func (c *Cluster) BucketsStats(degree int, regionIDs ...uint64) map[uint64][]*bu
 
 // GetStorage returns the storage.
 func (c *Cluster) GetStorage() storage.Storage {
+	if c == nil {
+		return nil
+	}
+	c.runtimeMu.RLock()
+	defer c.runtimeMu.RUnlock()
 	return c.storage
+}
+
+// GetHeartbeatStreams returns the heartbeat streams.
+func (c *Cluster) GetHeartbeatStreams() *hbstream.HeartbeatStreams {
+	if c == nil {
+		return nil
+	}
+	c.runtimeMu.RLock()
+	defer c.runtimeMu.RUnlock()
+	return c.hbStreams
+}
+
+// GetMetaWatcher returns the meta watcher.
+func (c *Cluster) GetMetaWatcher() *meta.Watcher {
+	if c == nil {
+		return nil
+	}
+	c.runtimeMu.RLock()
+	defer c.runtimeMu.RUnlock()
+	return c.metaWatcher
+}
+
+// SetRuntimeResources installs the cluster-scoped runtime resources after they are created.
+func (c *Cluster) SetRuntimeResources(
+	metaWatcher *meta.Watcher,
+	configWatcher *config.Watcher,
+	ruleWatcher *rule.Watcher,
+) {
+	c.runtimeMu.Lock()
+	defer c.runtimeMu.Unlock()
+	c.metaWatcher = metaWatcher
+	c.configWatcher = configWatcher
+	c.ruleWatcher = ruleWatcher
+}
+
+func (c *Cluster) cleanupRuntimeResources() {
+	c.runtimeMu.Lock()
+	ruleWatcher := c.ruleWatcher
+	metaWatcher := c.metaWatcher
+	configWatcher := c.configWatcher
+	hbStreams := c.hbStreams
+	c.ruleWatcher = nil
+	c.metaWatcher = nil
+	c.configWatcher = nil
+	c.hbStreams = nil
+	c.storage = nil
+	c.runtimeMu.Unlock()
+
+	now := time.Now()
+	if ruleWatcher != nil {
+		ruleWatcher.Close()
+	}
+	if metaWatcher != nil {
+		metaWatcher.Close()
+	}
+	if configWatcher != nil {
+		configWatcher.Close()
+	}
+	if hbStreams != nil {
+		start := time.Now()
+		hbStreams.Close()
+		log.Info("close stream takes", zap.Duration("cost", time.Since(start)))
+	}
+	log.Info("clean up runtime resources takes", zap.Duration("cost", time.Since(now)))
 }
 
 // GetCheckerConfig returns the checker config.
@@ -569,18 +648,18 @@ func (c *Cluster) StartBackgroundJobs() {
 	c.running.Store(true)
 }
 
-// StopBackgroundJobs stops background jobs.
-func (c *Cluster) StopBackgroundJobs() {
-	if !c.running.Load() {
-		return
+// StopBackgroundJobs stops background jobs, these jobs is created by NewCluster.
+func (c *Cluster) StopBackgroundJobs() bool {
+	if !c.running.CompareAndSwap(true, false) {
+		return false
 	}
-	c.running.Store(false)
 	c.coordinator.Stop()
 	c.heartbeatRunner.Stop()
 	c.miscRunner.Stop()
 	c.logRunner.Stop()
 	c.cancel()
 	c.wg.Wait()
+	return true
 }
 
 // IsBackgroundJobsRunning returns whether the background jobs are running. Only for test purpose.
