@@ -27,6 +27,7 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/keyspacepb"
+	"github.com/pingcap/kvproto/pkg/meta_storagepb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/log"
 
@@ -61,6 +62,8 @@ type innerClient struct {
 	wg     sync.WaitGroup
 	tlsCfg *tls.Config
 	option *opt.Option
+
+	metaStorageCli meta_storagepb.MetaStorageClient
 }
 
 func (c *innerClient) init(updateKeyspaceIDCb sd.UpdateKeyspaceIDFunc) error {

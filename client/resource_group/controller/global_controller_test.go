@@ -22,6 +22,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -613,3 +615,112 @@ func TestRUVersionWatchViaControllerConfig(t *testing.T) {
 		return controller.GetRUVersion() == 1 // Reset to default
 	})
 }
+
+// watchableProvider wraps MockResourceGroupProvider and provides controlled
+// watch channels that can be closed to simulate compact events, while
+// tracking the number of Watch calls for reconnection verification.
+type watchableProvider struct {
+	*MockResourceGroupProvider
+	metaCh         chan []*meta_storagepb.Event
+	configCh       chan []*meta_storagepb.Event
+	watchCallCount atomic.Int32
+}
+
+func (p *watchableProvider) Watch(ctx context.Context, key []byte, opts ...opt.MetaStorageOption) (chan []*meta_storagepb.Event, error) {
+	p.watchCallCount.Add(1)
+	if string(key) == string(pd.ControllerConfigPathPrefixBytes) {
+		return p.configCh, nil
+	}
+	// Return metaCh if it is still open (first call shares the channel with
+	// the writing goroutine). If metaCh has been closed (compact simulation),
+	// return a fresh channel for reconnection.
+	select {
+	case <-p.metaCh:
+		return make(chan []*meta_storagepb.Event, 10), nil
+	default:
+		return p.metaCh, nil
+	}
+}
+
+func TestWatchReconnectAfterCompact(t *testing.T) {
+	re := require.New(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	re.NoError(failpoint.Enable("github.com/tikv/pd/client/resource_group/controller/watchStreamError", "return()"))
+	defer func() {
+		re.NoError(failpoint.Disable("github.com/tikv/pd/client/resource_group/controller/watchStreamError"))
+	}()
+
+	mockProvider := &MockResourceGroupProvider{}
+	mockProvider.On("Get", mock.Anything, mock.Anything, mock.Anything).Return(&meta_storagepb.GetResponse{
+		Header: &meta_storagepb.ResponseHeader{Revision: 1},
+	}, nil)
+	mockProvider.On("LoadResourceGroups", mock.Anything).Return([]*rmpb.ResourceGroup{}, int64(0), nil)
+
+	provider := &watchableProvider{
+		MockResourceGroupProvider: mockProvider,
+		metaCh:                  make(chan []*meta_storagepb.Event, 10),
+		configCh:                make(chan []*meta_storagepb.Event, 10),
+	}
+
+	controller, err := NewResourceGroupController(ctx, 1, provider, nil, constants.NullKeyspaceID)
+	re.NoError(err)
+	controller.Start(ctx)
+
+	// Wait for initial watches to be established (meta + config = 2 calls).
+	time.Sleep(100 * time.Millisecond)
+	initialCalls := provider.watchCallCount.Load()
+	re.Equal(int32(2), initialCalls, "expected 2 initial Watch calls (meta + config)")
+
+	// Goroutine1: continuously simulate KV writes by sending events on the meta watch channel.
+	var wg sync.WaitGroup
+	stopWriting := make(chan struct{})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+		i := 0
+		for {
+			select {
+			case <-stopWriting:
+				return
+			case <-ticker.C:
+				i++
+				event := &meta_storagepb.Event{
+					Type: meta_storagepb.Event_PUT,
+					Kv: &meta_storagepb.KeyValue{
+						Key:   []byte(fmt.Sprintf("resource_group/settings/test-group-%d", i)),
+						Value: nil,
+					},
+				}
+				select {
+				case provider.metaCh <- []*meta_storagepb.Event{event}:
+				default:
+				}
+
+				close(provider.configCh)
+				provider.configCh = make(chan []*meta_storagepb.Event, 10)
+			}
+		}
+	}()
+
+	// Let goroutine1 write for a short while.
+	time.Sleep(10000 * time.Millisecond)
+
+	// Stop the writing goroutine and wait for it to exit.
+	close(stopWriting)
+	wg.Wait()
+
+	// Simulate compact by closing the meta watch channel.
+	close(provider.metaCh)
+
+	// Wait for reconnection. With the watchStreamError failpoint, the retry
+	// interval is 20ms. Use Eventually for robustness.
+	testutil.Eventually(re, func() bool {
+		fmt.Printf("watch call count:%d\n", provider.watchCallCount.Load())
+		return provider.watchCallCount.Load() > initialCalls
+	}, testutil.WithWaitFor(10*time.Second), testutil.WithTickInterval(50*time.Millisecond))
+}
+

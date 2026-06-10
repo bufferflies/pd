@@ -33,6 +33,9 @@ import (
 
 // metaStorageClient gets the meta storage client from current PD leader.
 func (c *innerClient) metaStorageClient() meta_storagepb.MetaStorageClient {
+	if c.metaStorageCli != nil {
+		return c.metaStorageCli
+	}
 	if client := c.serviceDiscovery.GetServingEndpointClientConn(); client != nil {
 		return meta_storagepb.NewMetaStorageClient(client)
 	}
