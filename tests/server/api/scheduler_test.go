@@ -32,6 +32,7 @@ import (
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/kvproto/pkg/metapb"
 
+	"github.com/tikv/pd/pkg/cgroup"
 	sc "github.com/tikv/pd/pkg/schedule/config"
 	schedulerpkg "github.com/tikv/pd/pkg/schedule/schedulers"
 	"github.com/tikv/pd/pkg/schedule/types"
@@ -614,6 +615,64 @@ func (suite *scheduleTestSuite) checkAPI(cluster *tests.TestCluster) {
 		re.NoError(err)
 		addScheduler(re, urlPrefix, body)
 		suite.assertSchedulerExists(urlPrefix, sche.String())
+	}
+}
+
+func (suite *scheduleTestSuite) TestScatterRangeSchedulerLimit() {
+	suite.te.RunTest(suite.checkScatterRangeSchedulerLimit)
+}
+
+func (suite *scheduleTestSuite) checkScatterRangeSchedulerLimit(cluster *tests.TestCluster) {
+	re := suite.Require()
+	leaderAddr := cluster.GetLeaderServer().GetAddr()
+	urlPrefix := fmt.Sprintf("%s/pd/api/v1/schedulers", leaderAddr)
+	for i := 1; i <= 4; i++ {
+		store := &metapb.Store{
+			Id:        uint64(i),
+			State:     metapb.StoreState_Up,
+			NodeState: metapb.NodeState_Serving,
+		}
+		tests.MustPutStore(re, cluster, store)
+	}
+
+	cpuCount, _ := cgroup.GetCPUCount()
+	limit := int(float64(cpuCount) * 0.8)
+	if limit < 1 {
+		limit = 1
+	}
+
+	createdNames := make([]string, 0, limit)
+	for i := range limit {
+		rangeName := fmt.Sprintf("scatter-range-limit-test-%d", i)
+		input := map[string]any{
+			"name":       types.ScatterRangeScheduler.String(),
+			"start_key":  "",
+			"end_key":    "",
+			"range_name": rangeName,
+		}
+		body, err := json.Marshal(input)
+		re.NoError(err)
+		re.NoError(testutil.CheckPostJSON(tests.TestDialClient, urlPrefix, body, testutil.StatusOK(re)))
+		createdNames = append(createdNames, fmt.Sprintf("%s-%s", types.ScatterRangeScheduler.String(), rangeName))
+	}
+
+	// the next one exceeds the limit.
+	input := map[string]any{
+		"name":       types.ScatterRangeScheduler.String(),
+		"start_key":  "",
+		"end_key":    "",
+		"range_name": "scatter-range-limit-test-over",
+	}
+	body, err := json.Marshal(input)
+	re.NoError(err)
+	err = testutil.CheckPostJSON(tests.TestDialClient, urlPrefix, body,
+		testutil.Status(re, http.StatusBadRequest),
+		testutil.StringContain(re, "too many scatter-range schedulers"))
+	re.NoError(err)
+
+	for _, name := range createdNames {
+		deleteScheduler(re, urlPrefix, name)
+		assertNoScheduler(re, urlPrefix, name)
 	}
 }
 

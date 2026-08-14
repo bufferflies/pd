@@ -88,6 +88,25 @@ type CPUUsage struct {
 	NumCPU int
 }
 
+// GetCPUCount returns the number of CPUs available to the current process:
+// runtime.NumCPU(), capped by the process's cgroup CPU quota when one is set
+// and stricter than the host's CPU count. On any error reading the cgroup
+// quota (e.g. not running under a supported cgroup), it falls back to
+// runtime.NumCPU() and returns the error.
+func GetCPUCount() (int, error) {
+	quota := runtime.NumCPU()
+	period, cpuQuota, err := GetCPUPeriodAndQuota()
+	if err != nil {
+		return quota, err
+	}
+	if period > 0 && cpuQuota > 0 {
+		if ratio := float64(cpuQuota) / float64(period); ratio < float64(quota) {
+			quota = int(math.Ceil(ratio))
+		}
+	}
+	return quota, nil
+}
+
 // SetGOMAXPROCS is to set GOMAXPROCS to the number of CPUs.
 func SetGOMAXPROCS() (func(), error) {
 	const minGOMAXPROCS int = 1

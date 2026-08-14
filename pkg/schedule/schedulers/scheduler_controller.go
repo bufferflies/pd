@@ -17,6 +17,7 @@ package schedulers
 import (
 	"context"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/pingcap/log"
 
+	"github.com/tikv/pd/pkg/cgroup"
 	"github.com/tikv/pd/pkg/core"
 	"github.com/tikv/pd/pkg/errs"
 	sche "github.com/tikv/pd/pkg/schedule/core"
@@ -147,6 +149,41 @@ func ResetSchedulerMetrics() {
 	regionLabelStatusGauge.Reset()
 }
 
+// maxScatterRangeSchedulerCount returns the maximum number of scatter-range schedulers
+// allowed to be created, capped at 80% of the available CPU count (cgroup-aware, min 1).
+func maxScatterRangeSchedulerCount() int {
+	cpuCount, _ := cgroup.GetCPUCount()
+	limit := int(float64(cpuCount) * 0.8)
+	if limit < 1 {
+		limit = 1
+	}
+	return limit
+}
+
+// countSchedulersWithPrefix returns the number of keys in m that start with prefix.
+func countSchedulersWithPrefix[T any](m map[string]T, prefix string) int {
+	count := 0
+	for name := range m {
+		if strings.HasPrefix(name, prefix) {
+			count++
+		}
+	}
+	return count
+}
+
+// checkScatterRangeSchedulerLimit returns an error if adding scheduler would push the
+// number of existing scatter-range schedulers in m over the allowed limit.
+func checkScatterRangeSchedulerLimit[T any](scheduler Scheduler, m map[string]T) error {
+	if scheduler.GetType() != types.ScatterRangeScheduler {
+		return nil
+	}
+	limit := maxScatterRangeSchedulerCount()
+	if count := countSchedulersWithPrefix(m, types.ScatterRangeScheduler.String()+"-"); count >= limit {
+		return errs.ErrScatterRangeSchedulerLimitExceeded.FastGenByArgs(count, limit)
+	}
+	return nil
+}
+
 // AddSchedulerHandler adds the HTTP handler for a scheduler.
 func (c *Controller) AddSchedulerHandler(scheduler Scheduler, args ...string) error {
 	c.Lock()
@@ -155,6 +192,9 @@ func (c *Controller) AddSchedulerHandler(scheduler Scheduler, args ...string) er
 	name := scheduler.GetName()
 	if _, ok := c.schedulerHandlers[name]; ok {
 		return errs.ErrSchedulerExisted.FastGenByArgs()
+	}
+	if err := checkScatterRangeSchedulerLimit(scheduler, c.schedulerHandlers); err != nil {
+		return err
 	}
 
 	c.schedulerHandlers[name] = scheduler
@@ -213,6 +253,9 @@ func (c *Controller) AddScheduler(scheduler Scheduler, args ...string) error {
 	name := scheduler.GetName()
 	if _, ok := c.schedulers[name]; ok {
 		return errs.ErrSchedulerExisted.FastGenByArgs()
+	}
+	if err := checkScatterRangeSchedulerLimit(scheduler, c.schedulers); err != nil {
+		return err
 	}
 
 	s := NewScheduleController(c.ctx, c.cluster, c.opController, scheduler)

@@ -16,7 +16,6 @@ package cgroup
 
 import (
 	"context"
-	"math"
 	"runtime"
 	"sync"
 	"time"
@@ -116,19 +115,9 @@ func (m *Monitor) refreshCgroupLoop() {
 }
 
 func (m *Monitor) refreshCgroupCPU() error {
-	// Get the number of CPUs.
-	quota := runtime.NumCPU()
-
-	// Get CPU quota from cgroup.
-	cpuPeriod, cpuQuota, err := GetCPUPeriodAndQuota()
+	quota, err := GetCPUCount()
 	if err != nil {
 		return err
-	}
-	if cpuPeriod > 0 && cpuQuota > 0 {
-		ratio := float64(cpuQuota) / float64(cpuPeriod)
-		if ratio < float64(quota) {
-			quota = int(math.Ceil(ratio))
-		}
 	}
 
 	if quota != m.lastMaxProcs {

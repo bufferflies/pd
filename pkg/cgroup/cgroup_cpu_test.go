@@ -98,3 +98,16 @@ func TestGetCgroupCPU(t *testing.T) {
 	close(exit)
 	wg.Wait()
 }
+
+func TestGetCPUCount(t *testing.T) {
+	re := require.New(t)
+	count, err := GetCPUCount()
+	if err != nil {
+		if err == errs.ErrNoCPUControllerDetected {
+			return
+		}
+		re.NoError(err)
+	}
+	re.Positive(count)
+	re.LessOrEqual(count, runtime.NumCPU())
+}
